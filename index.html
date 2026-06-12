@@ -185,8 +185,8 @@
                 </div>
 
                 <div class="space-y-2">
-                    <button id="tool-draw-path" onclick="setTool('draw-path')" class="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/30 rounded-lg text-xs font-semibold text-white shadow-lg shadow-indigo-600/15 transition">
-                        <i data-lucide="pencil" class="w-4 h-4"></i> Draw Custom Path
+                    <button id="tool-draw-path" onclick="setTool('draw-path')" class="tool-btn w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-medium text-slate-300 transition">
+                        <i data-lucide="pencil" class="w-4 h-4 text-indigo-400"></i> Draw Custom Path
                     </button>
                     <div id="synthesis-panel" class="hidden bg-slate-900 border border-indigo-500/20 rounded-lg p-3 space-y-2">
                         <div class="flex justify-between items-center text-[10px]">
@@ -327,6 +327,7 @@
         let selectedLink = null;
         let activeTool = 'select';
         let dragTarget = null;
+        let isMouseDown = false; // Safe mouse/touch down tracker
         let isDrawingPath = false;
         let customPath = []; // Drawn target path
         let resampledPath = []; // Preprocessed target path
@@ -354,8 +355,6 @@
         let gaBestFitness = Infinity;
         let gaBestChromosome = null;
         let gaAnimationId = null;
-        let currentSynthesisShift = 0;
-        let currentSynthesisRotation = 0;
 
         // Telemetry Graph Settings
         let selectedGraphNode = null;
@@ -567,11 +566,144 @@
             }
         }
 
-        // --- DYNAMIC OPTIMIZATION ENGINE & CONFORMAL ALIGNMENT ---
+        // --- PURE ALIGNMENT SOLVER ---
+        // Determines rotation, shift, scale, and centroid parameterization on-demand.
+        // Prevents stale state tracking bugs inside fitness loops.
+        function getOptimalAlignment(chrom, topology) {
+            if (!chrom) return null;
+            let pathPoints = [];
+            const steps = 36;
+
+            if (topology === 'fourbar') {
+                const [r, l2, l3, u, v] = chrom;
+                const g2x = 1.0, g2y = 0.0;
+
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * 2 * Math.PI;
+                    const cx = r * Math.cos(angle);
+                    const cy = r * Math.sin(angle);
+
+                    const d = Math.sqrt((g2x - cx) ** 2 + (g2y - cy) ** 2);
+                    const dClamped = Math.max(Math.abs(l2 - l3) + 1e-5, Math.min(l2 + l3 - 1e-5, d));
+
+                    const a = (l2 ** 2 - l3 ** 2 + dClamped ** 2) / (2 * dClamped);
+                    const h = Math.sqrt(Math.max(0, l2 ** 2 - a ** 2));
+
+                    const ux = (g2x - cx) / dClamped;
+                    const uy = (g2y - cy) / dClamped;
+
+                    const fx = cx + a * ux - h * uy;
+                    const fy = cy + a * uy + h * ux;
+
+                    const cfx = (fx - cx) / l2;
+                    const cfy = (fy - cy) / l2;
+                    const px = cx + u * cfx - v * cfy;
+                    const py = cy + u * cfy + v * cfx;
+
+                    pathPoints.push({ x: px, y: py });
+                }
+            } else { // Slider-crank
+                const [r, l2, h, u, v] = chrom;
+
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * 2 * Math.PI;
+                    const cx = r * Math.cos(angle);
+                    const cy = r * Math.sin(angle);
+
+                    const dy = h - cy;
+                    const dyClamped = Math.max(-l2 + 1e-5, Math.min(l2 - 1e-5, dy));
+
+                    const sx = cx + Math.sqrt(Math.max(0, l2 ** 2 - dyClamped ** 2));
+                    const sy = h;
+
+                    const cfx = (sx - cx) / l2;
+                    const cfy = (sy - cy) / l2;
+                    const px = cx + u * cfx - v * cfy;
+                    const py = cy + u * cfy + v * cfx;
+
+                    pathPoints.push({ x: px, y: py });
+                }
+            }
+
+            let cCentroidX = 0, cCentroidY = 0;
+            pathPoints.forEach(p => { cCentroidX += p.x; cCentroidY += p.y; });
+            cCentroidX /= steps;
+            cCentroidY /= steps;
+
+            let cVariance = 0;
+            pathPoints.forEach(p => {
+                cVariance += (p.x - cCentroidX)**2 + (p.y - cCentroidY)**2;
+            });
+            const cScale = Math.sqrt(cVariance / steps);
+            if (cScale < 1e-4) return null;
+
+            const normalizedCand = pathPoints.map(p => ({
+                x: (p.x - cCentroidX) / cScale,
+                y: (p.y - cCentroidY) / cScale
+            }));
+
+            let bestMse = Infinity;
+            let bestShift = 0;
+            let bestPhi = 0;
+            const target = resampledPath.normalized;
+
+            for (let shift = 0; shift < steps; shift++) {
+                let Sxx = 0, Sxy = 0, Syx = 0, Syy = 0;
+                for (let i = 0; i < steps; i++) {
+                    const tPt = target[i];
+                    const cPt = normalizedCand[(i + shift) % steps];
+                    Sxx += tPt.x * cPt.x;
+                    Sxy += tPt.x * cPt.y;
+                    Syx += tPt.y * cPt.x;
+                    Syy += tPt.y * cPt.y;
+                }
+
+                let phi = 0;
+                if (topology === 'fourbar') {
+                    phi = Math.atan2(Sxy - Syx, Sxx + Syy);
+                } else {
+                    phi = 0; // Lock rotation strictly to 0 for slider cranks to keep slides horizontal
+                }
+
+                const cosP = Math.cos(phi);
+                const sinP = Math.sin(phi);
+
+                let currentMse = 0;
+                for (let i = 0; i < steps; i++) {
+                    const tPt = target[i];
+                    const cPt = normalizedCand[(i + shift) % steps];
+                    const rx = cPt.x * cosP - cPt.y * sinP;
+                    const ry = cPt.x * sinP + cPt.y * cosP;
+                    currentMse += (tPt.x - rx)**2 + (tPt.y - ry)**2;
+                }
+                currentMse /= steps;
+                if (currentMse < bestMse) {
+                    bestMse = currentMse;
+                    bestShift = shift;
+                    bestPhi = phi;
+                }
+            }
+
+            return {
+                rotation: bestPhi,
+                shift: bestShift,
+                cCentroidX,
+                cCentroidY,
+                cScale,
+                pathPoints
+            };
+        }
+
+        // --- DYNAMIC OPTIMIZATION ENGINE ---
         function setupSynthesis() {
             if (customPath.length < 5) return;
             
             resampledPath = resamplePoints(customPath, 36);
+            if (resampledPath.length < 3) {
+                stopSynthesis(false);
+                showNotification("Drawing Cancelled", "The path was too short or lacked clear motion. Please draw a continuous curve.", "info");
+                return;
+            }
             
             // Calculate scale and centroid properties of drawn path
             let tCentroidX = 0, tCentroidY = 0;
@@ -594,7 +726,6 @@
             const topology = document.getElementById('synthesis-topology').value;
 
             // Synthesis bounds setup
-            // Gene representation: [r, l2, l3/offset_h, u, v]
             let bounds;
             if (topology === 'fourbar') {
                 bounds = [
@@ -692,10 +823,10 @@
         function calculateShapeFitness(chrom, topology) {
             let pathPoints = [];
             const steps = 36;
+            let penalty = 0;
 
             if (topology === 'fourbar') {
                 const [r, l2, l3, u, v] = chrom;
-                // Fixed base is set at G1=(0,0) and G2=(1,0) in unit space
                 const g2x = 1.0, g2y = 0.0;
 
                 for (let i = 0; i < steps; i++) {
@@ -704,13 +835,16 @@
                     const cy = r * Math.sin(angle);
 
                     const d = Math.sqrt((g2x - cx) ** 2 + (g2y - cy) ** 2);
-                    if (d > l2 + l3 || d < Math.abs(l2 - l3)) return 1e9; // Lock prevention
+                    if (d > l2 + l3 || d < Math.abs(l2 - l3)) {
+                        penalty += 500;
+                    }
+                    const dClamped = Math.max(Math.abs(l2 - l3) + 1e-5, Math.min(l2 + l3 - 1e-5, d));
 
-                    const a = (l2 ** 2 - l3 ** 2 + d ** 2) / (2 * d);
+                    const a = (l2 ** 2 - l3 ** 2 + dClamped ** 2) / (2 * dClamped);
                     const h = Math.sqrt(Math.max(0, l2 ** 2 - a ** 2));
 
-                    const ux = (g2x - cx) / d;
-                    const uy = (g2y - cy) / d;
+                    const ux = (g2x - cx) / dClamped;
+                    const uy = (g2y - cy) / dClamped;
 
                     const fx = cx + a * ux - h * uy;
                     const fy = cy + a * uy + h * ux;
@@ -731,9 +865,12 @@
                     const cy = r * Math.sin(angle);
 
                     const dy = h - cy;
-                    if (Math.abs(dy) > l2) return 1e9; // Physical limit check
+                    if (Math.abs(dy) > l2) {
+                        penalty += 500;
+                    }
+                    const dyClamped = Math.max(-l2 + 1e-5, Math.min(l2 - 1e-5, dy));
 
-                    const sx = cx + Math.sqrt(l2 ** 2 - dy ** 2);
+                    const sx = cx + Math.sqrt(Math.max(0, l2 ** 2 - dyClamped ** 2));
                     const sy = h;
 
                     const cfx = (sx - cx) / l2;
@@ -756,7 +893,7 @@
                 cVariance += (p.x - cCentroidX)**2 + (p.y - cCentroidY)**2;
             });
             const cScale = Math.sqrt(cVariance / steps);
-            if (cScale < 1e-4) return 1e8; // Trivial point paths
+            if (cScale < 1e-4) return 1e8; // Trivial path penalty
 
             const normalizedCand = pathPoints.map(p => ({
                 x: (p.x - cCentroidX) / cScale,
@@ -779,8 +916,13 @@
                     Syy += tPt.y * cPt.y;
                 }
 
-                // Analytical best rotation matrix alignment angle 
-                const phi = Math.atan2(Sxy - Syx, Sxx + Syy);
+                let phi = 0;
+                if (topology === 'fourbar') {
+                    phi = Math.atan2(Sxy - Syx, Sxx + Syy);
+                } else {
+                    phi = 0; // Lock rotation strictly to 0 for slider cranks
+                }
+
                 const cosP = Math.cos(phi);
                 const sinP = Math.sin(phi);
 
@@ -789,7 +931,6 @@
                     const tPt = target[i];
                     const cPt = normalizedCand[(i + shift) % steps];
                     
-                    // Rotate and map candidate coordinates
                     const rx = cPt.x * cosP - cPt.y * sinP;
                     const ry = cPt.x * sinP + cPt.y * cosP;
                     
@@ -799,14 +940,10 @@
                 currentMse /= steps;
                 if (currentMse < bestMse) {
                     bestMse = currentMse;
-                    if (chrom === gaBestChromosome) {
-                        currentSynthesisShift = shift;
-                        currentSynthesisRotation = phi;
-                    }
                 }
             }
 
-            return bestMse;
+            return bestMse + penalty;
         }
 
         // Translates optimized shapes from local coordinates back to world workspace coordinates
@@ -814,9 +951,10 @@
             if (!gaBestChromosome) return;
             const topology = document.getElementById('synthesis-topology').value;
 
-            clearCanvas();
+            const align = getOptimalAlignment(gaBestChromosome, topology);
+            if (!align) return;
 
-            // Source standard drawing parameters
+            // Compute standard drawing parameters PRIOR to clearCanvas() wiping the path memory
             let tCentroidX = 0, tCentroidY = 0;
             resampledPath.forEach(p => { tCentroidX += p.x; tCentroidY += p.y; });
             tCentroidX /= resampledPath.length;
@@ -828,55 +966,25 @@
             });
             const tScale = Math.sqrt(tVariance / resampledPath.length);
 
+            clearCanvas();
+
+            const K = tScale / align.cScale;
+            const phi = align.rotation;
+            const cosP = Math.cos(phi);
+            const sinP = Math.sin(phi);
+
+            const mapCoord = (x, y) => {
+                const dx = (x - align.cCentroidX) * K;
+                const dy = (y - align.cCentroidY) * K;
+                return {
+                    x: tCentroidX + (dx * cosP - dy * sinP),
+                    y: tCentroidY + (dx * sinP + dy * cosP)
+                };
+            };
+
             if (topology === 'fourbar') {
                 const [r, l2, l3, u, v] = gaBestChromosome;
-                
-                // Solve the shapes centroids and variance scaling in candidate space
-                let pathPoints = [];
-                const steps = 36;
                 const g2x = 1.0, g2y = 0.0;
-
-                for (let i = 0; i < steps; i++) {
-                    const angle = (i / steps) * 2 * Math.PI;
-                    const cx = r * Math.cos(angle);
-                    const cy = r * Math.sin(angle);
-                    const d = Math.sqrt((g2x - cx) ** 2 + (g2y - cy) ** 2);
-                    const a = (l2 ** 2 - l3 ** 2 + d ** 2) / (2 * d);
-                    const h = Math.sqrt(Math.max(0, l2 ** 2 - a ** 2));
-                    const ux = (g2x - cx) / d;
-                    const uy = (g2y - cy) / d;
-                    const fx = cx + a * ux - h * uy;
-                    const fy = cy + a * uy + h * ux;
-                    const cfx = (fx - cx) / l2;
-                    const cfy = (fy - cy) / l2;
-                    const px = cx + u * cfx - v * cfy;
-                    const py = cy + u * cfy + v * cfx;
-                    pathPoints.push({ x: px, y: py });
-                }
-
-                let cCentroidX = 0, cCentroidY = 0;
-                pathPoints.forEach(p => { cCentroidX += p.x; cCentroidY += p.y; });
-                cCentroidX /= steps;
-                cCentroidY /= steps;
-
-                let cVariance = 0;
-                pathPoints.forEach(p => { cVariance += (p.x - cCentroidX)**2 + (p.y - cCentroidY)**2; });
-                const cScale = Math.sqrt(cVariance / steps);
-
-                // Conformal transformation mapping local points to workspace coordinates
-                const K = tScale / cScale;
-                const phi = currentSynthesisRotation;
-                const cosP = Math.cos(phi);
-                const sinP = Math.sin(phi);
-
-                const mapCoord = (x, y) => {
-                    const dx = (x - cCentroidX) * K;
-                    const dy = (y - cCentroidY) * K;
-                    return {
-                        x: tCentroidX + (dx * cosP - dy * sinP),
-                        y: tCentroidY + (dx * sinP + dy * cosP)
-                    };
-                };
 
                 const ptG1 = mapCoord(0, 0);
                 const ptG2 = mapCoord(g2x, g2y);
@@ -918,7 +1026,8 @@
                 };
                 const idP = addJoint(ptP.x, ptP.y, false);
 
-                // Standard connections
+                // Setup physical bodies and visible amber crank arm link
+                addLink(idG1, idC, dC, '#f59e0b');
                 addLink(idC, idF, dCoupler, '#0ea5e9');
                 addLink(idG2, idF, dF, '#8b5cf6');
 
@@ -932,45 +1041,6 @@
 
             } else { // Slider-crank
                 const [r, l2, h, u, v] = gaBestChromosome;
-
-                let pathPoints = [];
-                const steps = 36;
-                for (let i = 0; i < steps; i++) {
-                    const angle = (i / steps) * 2 * Math.PI;
-                    const cx = r * Math.cos(angle);
-                    const cy = r * Math.sin(angle);
-                    const dy = h - cy;
-                    const sx = cx + Math.sqrt(l2 ** 2 - dy ** 2);
-                    const sy = h;
-                    const cfx = (sx - cx) / l2;
-                    const cfy = (sy - cy) / l2;
-                    const px = cx + u * cfx - v * cfy;
-                    const py = cy + u * cfy + v * cfx;
-                    pathPoints.push({ x: px, y: py });
-                }
-
-                let cCentroidX = 0, cCentroidY = 0;
-                pathPoints.forEach(p => { cCentroidX += p.x; cCentroidY += p.y; });
-                cCentroidX /= steps;
-                cCentroidY /= steps;
-
-                let cVariance = 0;
-                pathPoints.forEach(p => { cVariance += (p.x - cCentroidX)**2 + (p.y - cCentroidY)**2; });
-                const cScale = Math.sqrt(cVariance / steps);
-
-                const K = tScale / cScale;
-                const phi = currentSynthesisRotation;
-                const cosP = Math.cos(phi);
-                const sinP = Math.sin(phi);
-
-                const mapCoord = (x, y) => {
-                    const dx = (x - cCentroidX) * K;
-                    const dy = (y - cCentroidY) * K;
-                    return {
-                        x: tCentroidX + (dx * cosP - dy * sinP),
-                        y: tCentroidY + (dx * sinP + dy * cosP)
-                    };
-                };
 
                 const ptG1 = mapCoord(0, 0);
                 const ptC = mapCoord(r, 0);
@@ -1003,6 +1073,7 @@
                 };
                 const idP = addJoint(ptP.x, ptP.y, false);
 
+                addLink(idG1, idC, dC, '#f59e0b');
                 addLink(idC, idS, dCoupler, '#10b981');
                 
                 const distCP = Math.sqrt((ptC.x - ptP.x)**2 + (ptC.y - ptP.y)**2);
@@ -1027,10 +1098,12 @@
             isSynthesizing = false;
             cancelAnimationFrame(gaAnimationId);
             document.getElementById('synthesis-panel').classList.add('hidden');
+            if (apply) {
+                applySynthesis(); // Call applySynthesis first while resampledPath is populated in memory
+            }
             customPath = [];
             resampledPath = [];
             setTool('select');
-            if (apply) applySynthesis();
         }
 
         function resamplePoints(points, numPoints) {
@@ -1042,6 +1115,10 @@
                 const d = Math.sqrt((points[i+1].x - points[i].x) ** 2 + (points[i+1].y - points[i].y) ** 2);
                 totalLen += d;
                 segments.push(d);
+            }
+
+            if (totalLen < 5.0) { // Reject static holds
+                return [];
             }
 
             const step = totalLen / (numPoints - 1);
@@ -1119,6 +1196,7 @@
             return id;
         }
 
+        // Deletes joint references and dependent links
         function deleteJoint(id) {
             joints = joints.filter(j => j.id !== id);
             links = links.filter(l => l.jointA !== id && l.jointB !== id);
@@ -1162,6 +1240,7 @@
 
                 const f = addJoint(cx + 250, cy - 20, false);
                 
+                addLink(g1, c, 70, '#f59e0b');
                 addLink(c, f, 220, '#0ea5e9'); 
                 addLink(g2, f, 120, '#8b5cf6'); 
 
@@ -1185,6 +1264,7 @@
                 jS.isSlider = true;
                 jS.sliderY = cy + 50;
 
+                addLink(g1, c, 60, '#f59e0b');
                 addLink(c, s, 200, '#10b981');
                 selectedGraphNode = s;
                 document.getElementById('graph-node-name').innerText = "Linear Slider Node";
@@ -1209,6 +1289,7 @@
                 const b4 = addJoint(ox + 30 * scale, oy + 10 * scale, false);
                 const foot = addJoint(ox + 40 * scale, oy - 120 * scale, false);
 
+                addLink(g2, crankId, 15 * scale, '#f59e0b');
                 addLink(crankId, b1, 50 * scale, '#0ea5e9');
                 addLink(crankId, b2, 61.9 * scale, '#0ea5e9');
                 addLink(g1, b1, 41.5 * scale, '#8b5cf6');
@@ -1266,6 +1347,7 @@
                 const f = addJoint(ox + 260, oy, false); 
                 const e = addJoint(ox + 180, oy + 60, false);
 
+                addLink(g2, c, 90, '#f59e0b');
                 addLink(c, d, 90, '#10b981');
                 addLink(d, f, 90, '#10b981');
                 addLink(f, e, 90, '#10b981');
@@ -1294,7 +1376,7 @@
                 jR1.crankPivotId = g1;
                 jR1.crankRadius = 110;
 
-                addLink(g1, r1, 110, '#8b5cf6');
+                addLink(g1, r1, 110, '#f59e0b');
                 addLink(g2, r2, 110, '#8b5cf6');
                 addLink(r1, m, 80, '#10b981');
                 addLink(r2, m, 80, '#10b981');
@@ -1319,6 +1401,7 @@
                 jS.isSlider = true;
                 jS.sliderY = oy + 60; 
 
+                addLink(g1, c, 45, '#f59e0b');
                 addLink(c, s, 185, '#10b981');
 
                 selectedGraphNode = s;
@@ -1383,6 +1466,7 @@
             const pos = getMousePos(e);
             lastMouseX = e.clientX;
             lastMouseY = e.clientY;
+            isMouseDown = true;
 
             if (e.button === 1 || e.shiftKey) {
                 isPanning = true;
@@ -1463,7 +1547,7 @@
                 return;
             }
 
-            if (activeTool === 'draw-path' && e.buttons === 1) {
+            if (activeTool === 'draw-path' && isMouseDown) {
                 customPath.push(pos);
                 draw();
                 return;
@@ -1503,6 +1587,7 @@
         });
 
         canvas.addEventListener('mouseup', () => {
+            isMouseDown = false;
             if (isPanning) {
                 isPanning = false;
                 return;
@@ -1512,6 +1597,14 @@
                 setupSynthesis();
             }
 
+            dragTarget = null;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isMouseDown = false;
+            if (activeTool === 'draw-path' && customPath.length > 5) {
+                setupSynthesis();
+            }
             dragTarget = null;
         });
 
@@ -1812,52 +1905,10 @@
 
         // Project the optimized linkage curve back into user viewport
         function drawCandidatePath(chrom, topology) {
-            let pathPoints = [];
-            const steps = 36;
+            const align = getOptimalAlignment(chrom, topology);
+            if (!align) return;
 
-            if (topology === 'fourbar') {
-                const [r, l2, l3, u, v] = chrom;
-                const g2x = 1.0, g2y = 0.0;
-
-                for (let i = 0; i < steps; i++) {
-                    const angle = (i / steps) * 2 * Math.PI;
-                    const cx = r * Math.cos(angle);
-                    const cy = r * Math.sin(angle);
-                    const d = Math.sqrt((g2x - cx) ** 2 + (g2y - cy) ** 2);
-                    if (d > l2 + l3 || d < Math.abs(l2 - l3)) continue;
-
-                    const a = (l2 ** 2 - l3 ** 2 + d ** 2) / (2 * d);
-                    const h = Math.sqrt(Math.max(0, l2 ** 2 - a ** 2));
-                    const ux = (g2x - cx) / d;
-                    const uy = (g2y - cy) / d;
-                    const fx = cx + a * ux - h * uy;
-                    const fy = cy + a * uy + h * ux;
-
-                    const cfx = (fx - cx) / l2;
-                    const cfy = (fy - cy) / l2;
-                    const px = cx + u * cfx - v * cfy;
-                    const py = cy + u * cfy + v * cfx;
-
-                    pathPoints.push({ x: px, y: py });
-                }
-            } else {
-                const [r, l2, h, u, v] = chrom;
-                for (let i = 0; i < steps; i++) {
-                    const angle = (i / steps) * 2 * Math.PI;
-                    const cx = r * Math.cos(angle);
-                    const cy = r * Math.sin(angle);
-                    const dy = h - cy;
-                    if (Math.abs(dy) > l2) continue;
-                    const sx = cx + Math.sqrt(l2 ** 2 - dy ** 2);
-                    const sy = h;
-                    const cfx = (sx - cx) / l2;
-                    const cfy = (sy - cy) / l2;
-                    const px = cx + u * cfx - v * cfy;
-                    const py = cy + u * cfy + v * cfx;
-                    pathPoints.push({ x: px, y: py });
-                }
-            }
-
+            const pathPoints = align.pathPoints;
             if (pathPoints.length < 3) return;
 
             // Fit using calculated conformal alignment matrices
@@ -1870,25 +1921,16 @@
             resampledPath.forEach(p => { tVariance += (p.x - tCentroidX)**2 + (p.y - tCentroidY)**2; });
             const tScale = Math.sqrt(tVariance / resampledPath.length);
 
-            let cCentroidX = 0, cCentroidY = 0;
-            pathPoints.forEach(p => { cCentroidX += p.x; cCentroidY += p.y; });
-            cCentroidX /= steps;
-            cCentroidY /= steps;
-
-            let cVariance = 0;
-            pathPoints.forEach(p => { cVariance += (p.x - cCentroidX)**2 + (p.y - cCentroidY)**2; });
-            const cScale = Math.sqrt(cVariance / steps);
-
-            const K = tScale / cScale;
-            const phi = currentSynthesisRotation;
+            const K = tScale / align.cScale;
+            const phi = align.rotation;
             const cosP = Math.cos(phi);
             const sinP = Math.sin(phi);
 
             ctx.beginPath();
-            for (let i = 0; i < steps; i++) {
+            for (let i = 0; i < pathPoints.length; i++) {
                 const pt = pathPoints[i];
-                const dx = (pt.x - cCentroidX) * K;
-                const dy = (pt.y - cCentroidY) * K;
+                const dx = (pt.x - align.cCentroidX) * K;
+                const dy = (pt.y - align.cCentroidY) * K;
                 const wx = tCentroidX + (dx * cosP - dy * sinP);
                 const wy = tCentroidY + (dx * sinP + dy * cosP);
 
