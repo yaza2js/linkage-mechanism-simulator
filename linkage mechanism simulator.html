@@ -1,0 +1,2209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kinematic Linkage Simulator & Path Synthesizer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 overflow-hidden h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-slate-900/80 backdrop-blur border-b border-slate-800 px-6 py-3 flex justify-between items-center z-10">
+        <div class="flex items-center gap-3">
+            <div class="bg-indigo-600 p-2 rounded-lg text-white shadow-lg shadow-indigo-500/20">
+                <i data-lucide="layers" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">LinkSynthesizer</h1>
+                <p class="text-xs text-slate-400">Interactive Kinematics & Evolutionary Path Optimization</p>
+            </div>
+        </div>
+        
+        <!-- Status & Performance Panel -->
+        <div class="flex items-center gap-6 text-xs">
+            <div class="bg-slate-800/50 border border-slate-700/50 px-3 py-1.5 rounded-md flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Solver: <span class="mono text-emerald-400" id="solver-fps">60 FPS</span></span>
+            </div>
+            <div class="bg-slate-800/50 border border-slate-700/50 px-3 py-1.5 rounded-md flex items-center gap-2">
+                <i data-lucide="activity" class="w-3.5 h-3.5 text-indigo-400"></i>
+                <span>Degrees of Freedom: <span class="mono text-indigo-400" id="dof-display">Calculating...</span></span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex overflow-hidden relative">
+        
+        <!-- Left Sidebar: Controls & Tools -->
+        <aside class="w-80 bg-slate-900 border-r border-slate-800 flex flex-col overflow-y-auto select-none">
+            
+            <!-- Quick Presets -->
+            <div class="p-4 border-b border-slate-800">
+                <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <i data-lucide="library" class="w-3.5 h-3.5"></i> Preset Mechanisms
+                </h3>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="loadPreset('fourbar')" class="preset-btn px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-md text-left text-xs transition flex flex-col gap-1">
+                        <span class="font-medium text-slate-200">Four-Bar Linkage</span>
+                        <span class="text-[10px] text-slate-400">Crank-Rocker setup</span>
+                    </button>
+                    <button onclick="loadPreset('slider')" class="preset-btn px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-md text-left text-xs transition flex flex-col gap-1">
+                        <span class="font-medium text-slate-200">Slider-Crank</span>
+                        <span class="text-[10px] text-slate-400">Rotary to Linear</span>
+                    </button>
+                    <button onclick="loadPreset('jansen')" class="preset-btn px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-md text-left text-xs transition flex flex-col gap-1">
+                        <span class="font-medium text-slate-200">Jansen Leg</span>
+                        <span class="text-[10px] text-slate-400">Strandbeest Walk</span>
+                    </button>
+                    <button onclick="loadPreset('klann')" class="preset-btn px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-md text-left text-xs transition flex flex-col gap-1">
+                        <span class="font-medium text-slate-200">Klann Leg</span>
+                        <span class="text-[10px] text-slate-400">6-Bar walking cycle</span>
+                    </button>
+                    <button onclick="loadPreset('peaucellier')" class="preset-btn px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-md text-left text-xs transition flex flex-col gap-1">
+                        <span class="font-medium text-slate-200">Peaucellier</span>
+                        <span class="text-[10px] text-slate-400">Exact straight line</span>
+                    </button>
+                    <button onclick="loadPreset('watt')" class="preset-btn px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-md text-left text-xs transition flex flex-col gap-1">
+                        <span class="font-medium text-slate-200">Watt's Linkage</span>
+                        <span class="text-[10px] text-slate-400">Approx straight line</span>
+                    </button>
+                    <button onclick="loadPreset('quickreturn')" class="preset-btn col-span-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/60 rounded-md text-left text-xs transition flex flex-col gap-1">
+                        <span class="font-medium text-slate-200">Quick-Return Mechanism</span>
+                        <span class="text-[10px] text-slate-400">Offset Slider-Crank design</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Editor Tools -->
+            <div class="p-4 border-b border-slate-800">
+                <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <i data-lucide="wrench" class="w-3.5 h-3.5"></i> Construct & Edit
+                </h3>
+                <div class="space-y-2">
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="tool-select" onclick="setTool('select')" class="tool-btn flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition text-xs font-medium">
+                            <i data-lucide="mouse-pointer" class="w-4 h-4"></i> Grab & Move
+                        </button>
+                        <button id="tool-joint" onclick="setTool('joint')" class="tool-btn flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition text-xs font-medium">
+                            <i data-lucide="circle-dot" class="w-4 h-4"></i> Add Joint
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="tool-link" onclick="setTool('link')" class="tool-btn flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition text-xs font-medium">
+                            <i data-lucide="git-commit" class="w-4 h-4"></i> Add Bar/Link
+                        </button>
+                        <button id="tool-eraser" onclick="setTool('eraser')" class="tool-btn flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition text-xs font-medium">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i> Delete
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/50">
+                        <button id="tool-toggle-fixed" onclick="setTool('toggle-fixed')" class="action-btn flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-medium transition">
+                            <i data-lucide="anchor" class="w-3.5 h-3.5 text-emerald-400"></i> Anchor Pin
+                        </button>
+                        <button id="tool-toggle-crank" onclick="setTool('toggle-crank')" class="action-btn flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-medium transition">
+                            <i data-lucide="rotate-cw" class="w-3.5 h-3.5 text-amber-400"></i> Set Motor
+                        </button>
+                    </div>
+                    <button id="tool-toggle-slider" onclick="setTool('toggle-slider')" class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-medium transition">
+                        <i data-lucide="move-horizontal" class="w-3.5 h-3.5 text-blue-400"></i> Set Linear Slider Guide
+                    </button>
+                </div>
+            </div>
+
+            <!-- Simulator Physics Settings -->
+            <div class="p-4 border-b border-slate-800 space-y-4">
+                <div>
+                    <div class="flex justify-between items-center mb-1.5">
+                        <span class="text-xs text-slate-400">Motor Speed (RPM)</span>
+                        <span class="mono text-xs text-amber-400" id="speed-val">15 RPM</span>
+                    </div>
+                    <input type="range" id="sim-speed" min="1" max="60" value="15" oninput="updateSimSpeed(this.value)" class="w-full accent-indigo-500 h-1 bg-slate-800 rounded-lg cursor-pointer">
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-slate-400">Color Stress/Strain</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="show-stress" checked onchange="toggleStress(this.checked)" class="sr-only peer">
+                        <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-slate-400">Trace Pin Curves</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="show-traces" checked onchange="toggleTraces(this.checked)" class="sr-only peer">
+                        <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Path Drawing & AI Synthesis Section -->
+            <div class="p-4 bg-indigo-950/30 flex-1 flex flex-col justify-between min-h-[220px]">
+                <div>
+                    <h3 class="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Path Synthesizer Engine
+                    </h3>
+                    <p class="text-[11px] text-slate-400 mb-3 leading-relaxed">
+                        Draw any closed curve. The evolutionary algorithm dynamically shapes the mechanism geometry to match your path perfectly.
+                    </p>
+                    
+                    <div class="mb-3">
+                        <label class="text-[10px] text-slate-400 block mb-1">Target Synthesis Topology</label>
+                        <select id="synthesis-topology" class="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs w-full text-slate-300 focus:outline-none focus:border-indigo-500">
+                            <option value="fourbar">Four-Bar Linkage</option>
+                            <option value="slider">Slider-Crank Linkage</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <button id="tool-draw-path" onclick="setTool('draw-path')" class="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/30 rounded-lg text-xs font-semibold text-white shadow-lg shadow-indigo-600/15 transition">
+                        <i data-lucide="pencil" class="w-4 h-4"></i> Draw Custom Path
+                    </button>
+                    <div id="synthesis-panel" class="hidden bg-slate-900 border border-indigo-500/20 rounded-lg p-3 space-y-2">
+                        <div class="flex justify-between items-center text-[10px]">
+                            <span class="text-slate-400">Genetic Engine</span>
+                            <span id="ga-status" class="text-indigo-400 font-semibold uppercase tracking-wider animate-pulse">Evolving...</span>
+                        </div>
+                        <div class="space-y-1.5">
+                            <div class="flex justify-between text-xs font-mono">
+                                <span class="text-slate-500">Generation</span>
+                                <span id="ga-gen" class="text-slate-300">0</span>
+                            </div>
+                            <div class="flex justify-between text-xs font-mono">
+                                <span class="text-slate-500">Trace Fit</span>
+                                <span id="ga-fit" class="text-emerald-400 font-semibold">0.0%</span>
+                            </div>
+                        </div>
+                        <div class="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+                            <div id="ga-progress" class="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-1.5 pt-1.5">
+                            <button onclick="stopSynthesis(true)" class="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-[10px] font-semibold rounded text-white transition">Apply Linkage</button>
+                            <button onclick="stopSynthesis(false)" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-[10px] font-semibold border border-slate-700 rounded text-slate-300 transition">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Canvas Area / Editor Workspace -->
+        <section class="flex-1 h-full bg-slate-950 relative overflow-hidden flex flex-col">
+            
+            <!-- Floating Navigation Controls overlay on Canvas -->
+            <div class="absolute top-4 left-4 z-10 flex gap-2">
+                <div class="bg-slate-900/95 backdrop-blur border border-slate-800 rounded-lg p-1.5 flex gap-1 shadow-xl">
+                    <button onclick="playPauseSim()" id="play-btn" class="p-2 hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 rounded-md transition" title="Play/Pause Simulation">
+                        <i data-lucide="pause" class="w-4 h-4" id="play-icon"></i>
+                    </button>
+                    <button onclick="resetSim()" class="p-2 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-md transition" title="Reset Pin Traces">
+                        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                    </button>
+                    <div class="w-[1px] bg-slate-800 mx-1"></div>
+                    <button onclick="zoomCanvas(1.1)" class="p-2 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-md transition" title="Zoom In">
+                        <i data-lucide="zoom-in" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="zoomCanvas(0.9)" class="p-2 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-md transition" title="Zoom Out">
+                        <i data-lucide="zoom-out" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="resetZoom()" class="p-2 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded-md transition" title="Fit Screen">
+                        <i data-lucide="maximize" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div class="bg-slate-900/95 backdrop-blur border border-slate-800 rounded-lg p-1.5 flex gap-1 shadow-xl">
+                    <button onclick="clearCanvas()" class="p-2 hover:bg-red-950 hover:text-red-400 text-slate-400 rounded-md transition flex items-center gap-1.5 px-3 text-xs font-semibold">
+                        <i data-lucide="trash" class="w-4 h-4"></i> Clear Canvas
+                    </button>
+                </div>
+            </div>
+
+            <!-- Floating Selected Element Inspector -->
+            <div id="inspector-panel" class="hidden absolute top-4 right-4 z-10 bg-slate-900/95 backdrop-blur border border-slate-800 rounded-xl p-4 w-72 shadow-2xl">
+                <div class="flex justify-between items-center mb-3">
+                    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Joint Inspector</h4>
+                    <button onclick="deselectElement()" class="text-slate-500 hover:text-slate-300 transition"><i data-lucide="x" class="w-4 h-4"></i></button>
+                </div>
+                <div id="inspector-content" class="space-y-3 text-xs">
+                    <!-- Loaded dynamically via JS -->
+                </div>
+            </div>
+
+            <!-- Main Interactive Canvas -->
+            <div class="flex-1 w-full h-full relative cursor-crosshair">
+                <canvas id="workspace-canvas" class="absolute inset-0 block"></canvas>
+            </div>
+
+            <!-- Physics Plots (Live Kinematic Graphing) -->
+            <div class="h-56 bg-slate-900/90 border-t border-slate-800 p-4 flex gap-4">
+                <div class="w-64 flex flex-col justify-between">
+                    <div>
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                            <i data-lucide="trending-up" class="w-3.5 h-3.5"></i> Motion & Energy Analyser
+                        </h4>
+                        <p class="text-[10px] text-slate-400 mt-1 leading-normal">Simultaneous real-time tracking of kinematic states and structural mechanical transmission efficiency.</p>
+                        
+                        <!-- Graph Channels Selector -->
+                        <div class="flex gap-1 mt-2.5">
+                            <button onclick="setGraphMode('position')" id="btn-mode-position" class="graph-mode-btn text-[10px] px-2 py-1 bg-indigo-600 text-white font-medium rounded transition">Pos</button>
+                            <button onclick="setGraphMode('velocity')" id="btn-mode-velocity" class="graph-mode-btn text-[10px] px-2 py-1 bg-slate-800 text-slate-400 font-medium rounded transition hover:bg-slate-700 hover:text-slate-200">Vel</button>
+                            <button onclick="setGraphMode('acceleration')" id="btn-mode-acceleration" class="graph-mode-btn text-[10px] px-2 py-1 bg-slate-800 text-slate-400 font-medium rounded transition hover:bg-slate-700 hover:text-slate-200">Acc</button>
+                        </div>
+                    </div>
+                    <div class="text-[10px] text-slate-500 font-mono flex flex-col gap-1">
+                        <div>Target Pin: <span id="graph-node-name" class="text-indigo-400 font-semibold">None</span></div>
+                        <div class="flex flex-col gap-1 mt-1">
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-cyan-400 inline-block"></span> X-Axis</span>
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-purple-400 inline-block"></span> Y-Axis</span>
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-pink-500 inline-block"></span> Magnitude</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Kinematics Plot -->
+                <div class="flex-1 flex flex-col bg-slate-950/50 rounded-lg border border-slate-800 p-2 relative overflow-hidden">
+                    <span class="text-[9px] uppercase tracking-wider font-semibold text-slate-500 absolute top-2 left-3 z-10">Kinematic Oscilloscope</span>
+                    <canvas id="graph-canvas" class="w-full h-full pt-4"></canvas>
+                </div>
+
+                <!-- Energy & Efficiency Plot -->
+                <div class="flex-1 flex flex-col bg-slate-950/50 rounded-lg border border-slate-800 p-2 relative overflow-hidden">
+                    <span class="text-[9px] uppercase tracking-wider font-semibold text-slate-500 absolute top-2 left-3 z-10 font-bold">Energy & Transmission Efficiency (%)</span>
+                    <div class="absolute top-2 right-3 z-10 text-[9px] text-emerald-400 font-mono font-semibold" id="live-efficiency-val">Eff: 100%</div>
+                    <canvas id="efficiency-canvas" class="w-full h-full pt-4"></canvas>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Custom Notification Modal -->
+    <div id="notification-modal" class="hidden fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl max-w-sm w-full p-5 shadow-2xl flex flex-col items-center text-center">
+            <div class="w-12 h-12 rounded-full bg-indigo-900/50 text-indigo-400 flex items-center justify-center mb-3.5" id="notif-icon-container">
+                <i data-lucide="info" class="w-6 h-6"></i>
+            </div>
+            <h3 class="text-sm font-semibold text-white mb-1.5" id="notif-title">Path Captured</h3>
+            <p class="text-xs text-slate-400 mb-5 leading-relaxed" id="notif-message">The evolutionary engine will now optimize the link sizes.</p>
+            <button onclick="closeNotification()" class="w-full bg-slate-800 hover:bg-slate-700 text-xs font-semibold py-2 rounded-lg border border-slate-700 transition">Understood</button>
+        </div>
+    </div>
+
+    <!-- JS Kinematic and Evolutionary Solver -->
+    <script>
+        // --- DATA STRUCTURES & STATE ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
+        let joints = [];
+        let links = [];
+        let isSimulating = true;
+        let selectedJoint = null;
+        let selectedLink = null;
+        let activeTool = 'select';
+        let dragTarget = null;
+        let isDrawingPath = false;
+        let customPath = []; // Drawn target path
+        let resampledPath = []; // Preprocessed target path
+        let activeLinkOrigin = null;
+
+        // Viewport transformations
+        let panX = 0;
+        let panY = 0;
+        let zoom = 1.0;
+        let isPanning = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        // Simulation parameters
+        let solverIterations = 120;
+        let dt = 1 / 60;
+        let simSpeedRPM = 15;
+        let showStress = true;
+        let showTraces = true;
+
+        // Genetic Algorithm (Path Synthesis) State
+        let gaPopulation = [];
+        let isSynthesizing = false;
+        let gaGeneration = 0;
+        let gaBestFitness = Infinity;
+        let gaBestChromosome = null;
+        let gaAnimationId = null;
+        let currentSynthesisShift = 0;
+        let currentSynthesisRotation = 0;
+
+        // Telemetry Graph Settings
+        let selectedGraphNode = null;
+        let graphMode = 'position'; // 'position' | 'velocity' | 'acceleration'
+        let graphHistoryX = [];
+        let graphHistoryY = [];
+        let graphHistoryMag = [];
+
+        // Energy & Efficiency Telemetry Settings
+        let graphHistoryEff = [];
+        let graphHistoryKE = [];
+        let graphHistorySE = [];
+
+        // Canvas Setup
+        const canvas = document.getElementById('workspace-canvas');
+        const ctx = canvas.getContext('2d');
+        const graphCanvas = document.getElementById('graph-canvas');
+        const graphCtx = graphCanvas.getContext('2d');
+        const efficiencyCanvas = document.getElementById('efficiency-canvas');
+        const efficiencyCtx = efficiencyCanvas.getContext('2d');
+
+        // Initial Layout Adjustment
+        function resizeCanvases() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            
+            const gRect = graphCanvas.parentElement.getBoundingClientRect();
+            graphCanvas.width = gRect.width;
+            graphCanvas.height = gRect.height;
+
+            const eRect = efficiencyCanvas.parentElement.getBoundingClientRect();
+            efficiencyCanvas.width = eRect.width;
+            efficiencyCanvas.height = eRect.height;
+        }
+
+        window.addEventListener('resize', () => {
+            resizeCanvases();
+            draw();
+        });
+
+        // --- CORE KINEMATIC SOLVER ---
+        function stepKinematics() {
+            if (!isSimulating) return;
+
+            // 1. Move driven cranks at desired angular velocities
+            joints.forEach(j => {
+                if (j.isCrank && j.crankPivotId) {
+                    const pivot = joints.find(p => p.id === j.crankPivotId);
+                    if (pivot) {
+                        j.crankAngle += (simSpeedRPM * 2 * Math.PI / 60) * dt;
+                        j.x = pivot.x + j.crankRadius * Math.cos(j.crankAngle);
+                        j.y = pivot.y + j.crankRadius * Math.sin(j.crankAngle);
+                    }
+                }
+            });
+
+            // 2. Enforce fixed coordinates of ground pivots
+            joints.forEach(j => {
+                if (j.isFixed) {
+                    j.x = j.initialX;
+                    j.y = j.initialY;
+                }
+            });
+
+            // Store prior state positions to calculate velocity vectors accurately
+            joints.forEach(j => {
+                j.prevSolverX = j.x;
+                j.prevSolverY = j.y;
+            });
+
+            // 3. Iterative relaxation to satisfy link distance constraints (PBD Projection)
+            for (let iter = 0; iter < solverIterations; iter++) {
+                links.forEach(l => {
+                    const jA = joints.find(j => j.id === l.jointA);
+                    const jB = joints.find(j => j.id === l.jointB);
+                    if (!jA || !jB) return;
+
+                    const dx = jB.x - jA.x;
+                    const dy = jB.y - jA.y;
+                    const currentDist = Math.sqrt(dx * dx + dy * dy);
+                    if (currentDist === 0) return;
+
+                    const diff = (l.length - currentDist) / currentDist;
+                    const correctionX = dx * diff;
+                    const correctionY = dy * diff;
+
+                    const wA = (jA.isFixed || jA.isCrank) ? 0 : 1;
+                    const wB = (jB.isFixed || jB.isCrank) ? 0 : 1;
+                    const sumW = wA + wB;
+
+                    if (sumW > 0) {
+                        const factorA = wA / sumW;
+                        const factorB = wB / sumW;
+
+                        jA.x -= correctionX * factorA;
+                        jA.y -= correctionY * factorA;
+                        jB.x += correctionX * factorB;
+                        jB.y += correctionY * factorB;
+                    }
+                });
+
+                // Enforce sliding guide constraints (horizontal sliding line)
+                joints.forEach(j => {
+                    if (j.isSlider) {
+                        j.y = j.sliderY; 
+                    }
+                });
+            }
+
+            // --- ENERGY & EFFICIENCY ANALYTICS SOLVER ---
+            // Kinetic Energy = sum(0.5 * m * v^2)
+            let totalKE = 0;
+            joints.forEach(j => {
+                if (!j.isFixed) {
+                    const vx = (j.x - j.prevSolverX) / dt;
+                    const vy = (j.y - j.prevSolverY) / dt;
+                    totalKE += 0.5 * 1.0 * (vx * vx + vy * vy); // Assign mass unit = 1.0
+                }
+            });
+
+            // Strain Energy Losses = sum(0.5 * k * dx^2) representing compliance energy lost in transmission
+            let totalSE = 0;
+            const stiffnessK = 180000; // Physical structural stiffness equivalent
+            links.forEach(l => {
+                const jA = joints.find(j => j.id === l.jointA);
+                const jB = joints.find(j => j.id === l.jointB);
+                if (!jA || !jB) return;
+
+                const actualLen = Math.sqrt((jB.x - jA.x)**2 + (jB.y - jA.y)**2);
+                const stretch = actualLen - l.length;
+                totalSE += 0.5 * stiffnessK * (stretch * stretch);
+            });
+
+            // Instantaneous mechanical efficiency derived from kinetic transmission ratio
+            let efficiency = 100 * (1 - (totalSE / (totalKE + totalSE + 200)));
+            efficiency = Math.max(0, Math.min(100, efficiency));
+
+            document.getElementById('live-efficiency-val').innerText = `Eff: ${efficiency.toFixed(1)}%`;
+
+            // Push values onto analytics plotting lists
+            graphHistoryEff.push(efficiency);
+            graphHistoryKE.push(totalKE);
+            graphHistorySE.push(totalSE);
+
+            if (graphHistoryEff.length > 200) {
+                graphHistoryEff.shift();
+                graphHistoryKE.shift();
+                graphHistorySE.shift();
+            }
+
+            // Record traces of movement for visualization
+            if (showTraces) {
+                joints.forEach(j => {
+                    if (!j.isFixed) {
+                        if (!j.trace) j.trace = [];
+                        j.trace.push({ x: j.x, y: j.y });
+                        if (j.trace.length > 350) j.trace.shift();
+                    }
+                });
+            }
+
+            // Track live multi-axis kinematics for oscilloscope
+            if (selectedGraphNode) {
+                const node = joints.find(j => j.id === selectedGraphNode);
+                if (node) {
+                    if (node.prevX === undefined) {
+                        node.prevX = node.x;
+                        node.prevY = node.y;
+                        node.prevVx = 0;
+                        node.prevVy = 0;
+                    }
+
+                    // Compute dynamic differences
+                    const vx = (node.x - node.prevX) / dt;
+                    const vy = (node.y - node.prevY) / dt;
+                    const speed = Math.sqrt(vx * vx + vy * vy);
+
+                    const ax = (vx - node.prevVx) / dt;
+                    const ay = (vy - node.prevVy) / dt;
+                    const accel = Math.sqrt(ax * ax + ay * ay);
+
+                    node.prevX = node.x;
+                    node.prevY = node.y;
+                    node.prevVx = vx;
+                    node.prevVy = vy;
+
+                    // Push tracking history based on mode
+                    if (graphMode === 'position') {
+                        graphHistoryX.push(node.x - panX); // Adjust for visual canvas translation
+                        graphHistoryY.push(node.y - panY);
+                        graphHistoryMag.push(Math.sqrt((node.x - panX)**2 + (node.y - panY)**2));
+                    } else if (graphMode === 'velocity') {
+                        graphHistoryX.push(vx);
+                        graphHistoryY.push(vy);
+                        graphHistoryMag.push(speed);
+                    } else if (graphMode === 'acceleration') {
+                        graphHistoryX.push(ax);
+                        graphHistoryY.push(ay);
+                        graphHistoryMag.push(accel);
+                    }
+
+                    if (graphHistoryX.length > 200) {
+                        graphHistoryX.shift();
+                        graphHistoryY.shift();
+                        graphHistoryMag.shift();
+                    }
+                }
+            }
+        }
+
+        // --- DYNAMIC OPTIMIZATION ENGINE & CONFORMAL ALIGNMENT ---
+        function setupSynthesis() {
+            if (customPath.length < 5) return;
+            
+            resampledPath = resamplePoints(customPath, 36);
+            
+            // Calculate scale and centroid properties of drawn path
+            let tCentroidX = 0, tCentroidY = 0;
+            resampledPath.forEach(p => { tCentroidX += p.x; tCentroidY += p.y; });
+            tCentroidX /= resampledPath.length;
+            tCentroidY /= resampledPath.length;
+
+            let tVariance = 0;
+            resampledPath.forEach(p => {
+                tVariance += (p.x - tCentroidX)**2 + (p.y - tCentroidY)**2;
+            });
+            const tScale = Math.sqrt(tVariance / resampledPath.length);
+
+            // Store standardized normalized unit targets
+            resampledPath.normalized = resampledPath.map(p => ({
+                x: (p.x - tCentroidX) / tScale,
+                y: (p.y - tCentroidY) / tScale
+            }));
+
+            const topology = document.getElementById('synthesis-topology').value;
+
+            // Synthesis bounds setup
+            // Gene representation: [r, l2, l3/offset_h, u, v]
+            let bounds;
+            if (topology === 'fourbar') {
+                bounds = [
+                    [0.1, 0.7],  // Crank radius r (ratio to fixed base)
+                    [0.4, 2.0],  // Coupler link l2
+                    [0.4, 2.0],  // Follower link l3
+                    [-1.5, 1.5], // Tracer offset u
+                    [-1.5, 1.5]  // Tracer offset v
+                ];
+            } else { // Slider-crank
+                bounds = [
+                    [0.1, 0.7],  // Crank radius r
+                    [0.4, 2.0],  // Coupler length l2
+                    [-0.7, 0.7], // Guide offset height h
+                    [-1.5, 1.5], // Tracer offset u
+                    [-1.5, 1.5]  // Tracer offset v
+                ];
+            }
+
+            const popSize = 120;
+            gaPopulation = [];
+            for (let i = 0; i < popSize; i++) {
+                let chrom = bounds.map(b => b[0] + Math.random() * (b[1] - b[0]));
+                gaPopulation.push({
+                    chrom: chrom,
+                    fitness: calculateShapeFitness(chrom, topology)
+                });
+            }
+
+            gaGeneration = 0;
+            gaBestFitness = Infinity;
+            isSynthesizing = true;
+            document.getElementById('synthesis-panel').classList.remove('hidden');
+            
+            showNotification(
+                "Optimization Initiated",
+                "Drawing recognized. The shape-invariant genetic solver is optimizing linkages.",
+                "sparkles"
+            );
+
+            runGeneticStep(bounds, topology);
+        }
+
+        function runGeneticStep(bounds, topology) {
+            if (!isSynthesizing) return;
+
+            for (let step = 0; step < 8; step++) {
+                gaGeneration++;
+                
+                gaPopulation.sort((a, b) => a.fitness - b.fitness);
+                if (gaPopulation[0].fitness < gaBestFitness) {
+                    gaBestFitness = gaPopulation[0].fitness;
+                    gaBestChromosome = gaPopulation[0].chrom;
+                }
+
+                let nextPop = [];
+                // Elitism (Keep top 12)
+                for (let i = 0; i < 12; i++) {
+                    nextPop.push(gaPopulation[i]);
+                }
+
+                while (nextPop.length < gaPopulation.length) {
+                    let p1 = tournamentSelect();
+                    let p2 = tournamentSelect();
+
+                    // Crossover
+                    let childChrom = crossover(p1.chrom, p2.chrom);
+                    // Mutation
+                    childChrom = mutate(childChrom, bounds);
+
+                    nextPop.push({
+                        chrom: childChrom,
+                        fitness: calculateShapeFitness(childChrom, topology)
+                    });
+                }
+                gaPopulation = nextPop;
+            }
+
+            // Calculate precise alignment score percentage
+            const matchPercent = Math.max(0, Math.min(100, 100 - (gaBestFitness * 45)));
+            document.getElementById('ga-gen').innerText = gaGeneration;
+            document.getElementById('ga-fit').innerText = matchPercent.toFixed(1) + "%";
+            document.getElementById('ga-progress').style.width = matchPercent + "%";
+
+            draw();
+
+            if (gaGeneration < 350 && matchPercent < 98.5) {
+                gaAnimationId = requestAnimationFrame(() => runGeneticStep(bounds, topology));
+            } else {
+                stopSynthesis(true);
+            }
+        }
+
+        // Analytical Procrustes Distance with phase shift scan to solve linkage shape matching
+        function calculateShapeFitness(chrom, topology) {
+            let pathPoints = [];
+            const steps = 36;
+
+            if (topology === 'fourbar') {
+                const [r, l2, l3, u, v] = chrom;
+                // Fixed base is set at G1=(0,0) and G2=(1,0) in unit space
+                const g2x = 1.0, g2y = 0.0;
+
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * 2 * Math.PI;
+                    const cx = r * Math.cos(angle);
+                    const cy = r * Math.sin(angle);
+
+                    const d = Math.sqrt((g2x - cx) ** 2 + (g2y - cy) ** 2);
+                    if (d > l2 + l3 || d < Math.abs(l2 - l3)) return 1e9; // Lock prevention
+
+                    const a = (l2 ** 2 - l3 ** 2 + d ** 2) / (2 * d);
+                    const h = Math.sqrt(Math.max(0, l2 ** 2 - a ** 2));
+
+                    const ux = (g2x - cx) / d;
+                    const uy = (g2y - cy) / d;
+
+                    const fx = cx + a * ux - h * uy;
+                    const fy = cy + a * uy + h * ux;
+
+                    const cfx = (fx - cx) / l2;
+                    const cfy = (fy - cy) / l2;
+                    const px = cx + u * cfx - v * cfy;
+                    const py = cy + u * cfy + v * cfx;
+
+                    pathPoints.push({ x: px, y: py });
+                }
+            } else { // Slider-crank
+                const [r, l2, h, u, v] = chrom;
+
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * 2 * Math.PI;
+                    const cx = r * Math.cos(angle);
+                    const cy = r * Math.sin(angle);
+
+                    const dy = h - cy;
+                    if (Math.abs(dy) > l2) return 1e9; // Physical limit check
+
+                    const sx = cx + Math.sqrt(l2 ** 2 - dy ** 2);
+                    const sy = h;
+
+                    const cfx = (sx - cx) / l2;
+                    const cfy = (sy - cy) / l2;
+                    const px = cx + u * cfx - v * cfy;
+                    const py = cy + u * cfy + v * cfx;
+
+                    pathPoints.push({ x: px, y: py });
+                }
+            }
+
+            // Standardize/Normalize the generated candidate path
+            let cCentroidX = 0, cCentroidY = 0;
+            pathPoints.forEach(p => { cCentroidX += p.x; cCentroidY += p.y; });
+            cCentroidX /= steps;
+            cCentroidY /= steps;
+
+            let cVariance = 0;
+            pathPoints.forEach(p => {
+                cVariance += (p.x - cCentroidX)**2 + (p.y - cCentroidY)**2;
+            });
+            const cScale = Math.sqrt(cVariance / steps);
+            if (cScale < 1e-4) return 1e8; // Trivial point paths
+
+            const normalizedCand = pathPoints.map(p => ({
+                x: (p.x - cCentroidX) / cScale,
+                y: (p.y - cCentroidY) / cScale
+            }));
+
+            // Analytical Procrustes matching scanned across all phase shift variants
+            let bestMse = Infinity;
+            const target = resampledPath.normalized;
+
+            for (let shift = 0; shift < steps; shift++) {
+                let Sxx = 0, Sxy = 0, Syx = 0, Syy = 0;
+                
+                for (let i = 0; i < steps; i++) {
+                    const tPt = target[i];
+                    const cPt = normalizedCand[(i + shift) % steps];
+                    Sxx += tPt.x * cPt.x;
+                    Sxy += tPt.x * cPt.y;
+                    Syx += tPt.y * cPt.x;
+                    Syy += tPt.y * cPt.y;
+                }
+
+                // Analytical best rotation matrix alignment angle 
+                const phi = Math.atan2(Sxy - Syx, Sxx + Syy);
+                const cosP = Math.cos(phi);
+                const sinP = Math.sin(phi);
+
+                let currentMse = 0;
+                for (let i = 0; i < steps; i++) {
+                    const tPt = target[i];
+                    const cPt = normalizedCand[(i + shift) % steps];
+                    
+                    // Rotate and map candidate coordinates
+                    const rx = cPt.x * cosP - cPt.y * sinP;
+                    const ry = cPt.x * sinP + cPt.y * cosP;
+                    
+                    currentMse += (tPt.x - rx)**2 + (tPt.y - ry)**2;
+                }
+                
+                currentMse /= steps;
+                if (currentMse < bestMse) {
+                    bestMse = currentMse;
+                    if (chrom === gaBestChromosome) {
+                        currentSynthesisShift = shift;
+                        currentSynthesisRotation = phi;
+                    }
+                }
+            }
+
+            return bestMse;
+        }
+
+        // Translates optimized shapes from local coordinates back to world workspace coordinates
+        function applySynthesis() {
+            if (!gaBestChromosome) return;
+            const topology = document.getElementById('synthesis-topology').value;
+
+            clearCanvas();
+
+            // Source standard drawing parameters
+            let tCentroidX = 0, tCentroidY = 0;
+            resampledPath.forEach(p => { tCentroidX += p.x; tCentroidY += p.y; });
+            tCentroidX /= resampledPath.length;
+            tCentroidY /= resampledPath.length;
+
+            let tVariance = 0;
+            resampledPath.forEach(p => {
+                tVariance += (p.x - tCentroidX)**2 + (p.y - tCentroidY)**2;
+            });
+            const tScale = Math.sqrt(tVariance / resampledPath.length);
+
+            if (topology === 'fourbar') {
+                const [r, l2, l3, u, v] = gaBestChromosome;
+                
+                // Solve the shapes centroids and variance scaling in candidate space
+                let pathPoints = [];
+                const steps = 36;
+                const g2x = 1.0, g2y = 0.0;
+
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * 2 * Math.PI;
+                    const cx = r * Math.cos(angle);
+                    const cy = r * Math.sin(angle);
+                    const d = Math.sqrt((g2x - cx) ** 2 + (g2y - cy) ** 2);
+                    const a = (l2 ** 2 - l3 ** 2 + d ** 2) / (2 * d);
+                    const h = Math.sqrt(Math.max(0, l2 ** 2 - a ** 2));
+                    const ux = (g2x - cx) / d;
+                    const uy = (g2y - cy) / d;
+                    const fx = cx + a * ux - h * uy;
+                    const fy = cy + a * uy + h * ux;
+                    const cfx = (fx - cx) / l2;
+                    const cfy = (fy - cy) / l2;
+                    const px = cx + u * cfx - v * cfy;
+                    const py = cy + u * cfy + v * cfx;
+                    pathPoints.push({ x: px, y: py });
+                }
+
+                let cCentroidX = 0, cCentroidY = 0;
+                pathPoints.forEach(p => { cCentroidX += p.x; cCentroidY += p.y; });
+                cCentroidX /= steps;
+                cCentroidY /= steps;
+
+                let cVariance = 0;
+                pathPoints.forEach(p => { cVariance += (p.x - cCentroidX)**2 + (p.y - cCentroidY)**2; });
+                const cScale = Math.sqrt(cVariance / steps);
+
+                // Conformal transformation mapping local points to workspace coordinates
+                const K = tScale / cScale;
+                const phi = currentSynthesisRotation;
+                const cosP = Math.cos(phi);
+                const sinP = Math.sin(phi);
+
+                const mapCoord = (x, y) => {
+                    const dx = (x - cCentroidX) * K;
+                    const dy = (y - cCentroidY) * K;
+                    return {
+                        x: tCentroidX + (dx * cosP - dy * sinP),
+                        y: tCentroidY + (dx * sinP + dy * cosP)
+                    };
+                };
+
+                const ptG1 = mapCoord(0, 0);
+                const ptG2 = mapCoord(g2x, g2y);
+                const ptC = mapCoord(r, 0); // Crank startup reference coordinate
+                
+                const dC = Math.sqrt((ptC.x - ptG1.x)**2 + (ptC.y - ptG1.y)**2);
+                const dF = l3 * K;
+                const dCoupler = l2 * K;
+
+                // Add physical bodies inside the sandbox workspace
+                const idG1 = addJoint(ptG1.x, ptG1.y, true);
+                const idG2 = addJoint(ptG2.x, ptG2.y, true);
+                const idC = addJoint(ptC.x, ptC.y, false);
+
+                const jC = joints.find(j => j.id === idC);
+                jC.isCrank = true;
+                jC.crankPivotId = idG1;
+                jC.crankRadius = dC;
+                jC.crankAngle = Math.atan2(ptC.y - ptG1.y, ptC.x - ptG1.x);
+
+                // Starting coordinate calculation for follower and trace point
+                const dVal = Math.sqrt((ptG2.x - ptC.x) ** 2 + (ptG2.y - ptC.y) ** 2);
+                const aVal = (dCoupler ** 2 - dF ** 2 + dVal ** 2) / (2 * dVal);
+                const hVal = Math.sqrt(Math.max(0, dCoupler ** 2 - aVal ** 2));
+                const uxVal = (ptG2.x - ptC.x) / dVal;
+                const uyVal = (ptG2.y - ptC.y) / dVal;
+                const ptF = {
+                    x: ptC.x + aVal * uxVal - hVal * uyVal,
+                    y: ptC.y + aVal * uyVal + hVal * uxVal
+                };
+
+                const idF = addJoint(ptF.x, ptF.y, false);
+
+                const cfx = (ptF.x - ptC.x) / dCoupler;
+                const cfy = (ptF.y - ptC.y) / dCoupler;
+                const ptP = {
+                    x: ptC.x + (u * K) * cfx - (v * K) * cfy,
+                    y: ptC.y + (u * K) * cfy + (v * K) * cfx
+                };
+                const idP = addJoint(ptP.x, ptP.y, false);
+
+                // Standard connections
+                addLink(idC, idF, dCoupler, '#0ea5e9');
+                addLink(idG2, idF, dF, '#8b5cf6');
+
+                const distCP = Math.sqrt((ptC.x - ptP.x)**2 + (ptC.y - ptP.y)**2);
+                const distFP = Math.sqrt((ptF.x - ptP.x)**2 + (ptF.y - ptP.y)**2);
+                addLink(idC, idP, distCP, '#ec4899');
+                addLink(idF, idP, distFP, '#f43f5e');
+
+                selectedGraphNode = idP;
+                document.getElementById('graph-node-name').innerText = "Coupler Tracer (Synthesized)";
+
+            } else { // Slider-crank
+                const [r, l2, h, u, v] = gaBestChromosome;
+
+                let pathPoints = [];
+                const steps = 36;
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * 2 * Math.PI;
+                    const cx = r * Math.cos(angle);
+                    const cy = r * Math.sin(angle);
+                    const dy = h - cy;
+                    const sx = cx + Math.sqrt(l2 ** 2 - dy ** 2);
+                    const sy = h;
+                    const cfx = (sx - cx) / l2;
+                    const cfy = (sy - cy) / l2;
+                    const px = cx + u * cfx - v * cfy;
+                    const py = cy + u * cfy + v * cfx;
+                    pathPoints.push({ x: px, y: py });
+                }
+
+                let cCentroidX = 0, cCentroidY = 0;
+                pathPoints.forEach(p => { cCentroidX += p.x; cCentroidY += p.y; });
+                cCentroidX /= steps;
+                cCentroidY /= steps;
+
+                let cVariance = 0;
+                pathPoints.forEach(p => { cVariance += (p.x - cCentroidX)**2 + (p.y - cCentroidY)**2; });
+                const cScale = Math.sqrt(cVariance / steps);
+
+                const K = tScale / cScale;
+                const phi = currentSynthesisRotation;
+                const cosP = Math.cos(phi);
+                const sinP = Math.sin(phi);
+
+                const mapCoord = (x, y) => {
+                    const dx = (x - cCentroidX) * K;
+                    const dy = (y - cCentroidY) * K;
+                    return {
+                        x: tCentroidX + (dx * cosP - dy * sinP),
+                        y: tCentroidY + (dx * sinP + dy * cosP)
+                    };
+                };
+
+                const ptG1 = mapCoord(0, 0);
+                const ptC = mapCoord(r, 0);
+
+                const dC = Math.sqrt((ptC.x - ptG1.x)**2 + (ptC.y - ptG1.y)**2);
+                const dCoupler = l2 * K;
+
+                const ptSLocalX = r + Math.sqrt(l2**2 - h**2);
+                const ptS = mapCoord(ptSLocalX, h);
+
+                const idG1 = addJoint(ptG1.x, ptG1.y, true);
+                const idC = addJoint(ptC.x, ptC.y, false);
+
+                const jC = joints.find(j => j.id === idC);
+                jC.isCrank = true;
+                jC.crankPivotId = idG1;
+                jC.crankRadius = dC;
+                jC.crankAngle = Math.atan2(ptC.y - ptG1.y, ptC.x - ptG1.x);
+
+                const idS = addJoint(ptS.x, ptS.y, false);
+                const jS = joints.find(j => j.id === idS);
+                jS.isSlider = true;
+                jS.sliderY = ptS.y;
+
+                const cfx = (ptS.x - ptC.x) / dCoupler;
+                const cfy = (ptS.y - ptC.y) / dCoupler;
+                const ptP = {
+                    x: ptC.x + (u * K) * cfx - (v * K) * cfy,
+                    y: ptC.y + (u * K) * cfy + (v * K) * cfx
+                };
+                const idP = addJoint(ptP.x, ptP.y, false);
+
+                addLink(idC, idS, dCoupler, '#10b981');
+                
+                const distCP = Math.sqrt((ptC.x - ptP.x)**2 + (ptC.y - ptP.y)**2);
+                const distSP = Math.sqrt((ptS.x - ptP.x)**2 + (ptS.y - ptP.y)**2);
+                addLink(idC, idP, distCP, '#ec4899');
+                addLink(idS, idP, distSP, '#f43f5e');
+
+                selectedGraphNode = idP;
+                document.getElementById('graph-node-name').innerText = "Tracer Node (Slider-Crank)";
+            }
+
+            resetSim();
+            draw();
+            showNotification(
+                "Synthesis Succeeded",
+                "Conformal mapping applied. Optimized layout created in work plane.",
+                "check-circle"
+            );
+        }
+
+        function stopSynthesis(apply = false) {
+            isSynthesizing = false;
+            cancelAnimationFrame(gaAnimationId);
+            document.getElementById('synthesis-panel').classList.add('hidden');
+            customPath = [];
+            resampledPath = [];
+            setTool('select');
+            if (apply) applySynthesis();
+        }
+
+        function resamplePoints(points, numPoints) {
+            if (points.length < 2) return [];
+            
+            let totalLen = 0;
+            const segments = [];
+            for (let i = 0; i < points.length - 1; i++) {
+                const d = Math.sqrt((points[i+1].x - points[i].x) ** 2 + (points[i+1].y - points[i].y) ** 2);
+                totalLen += d;
+                segments.push(d);
+            }
+
+            const step = totalLen / (numPoints - 1);
+            const resampled = [points[0]];
+            let currSegment = 0;
+            let accumDist = 0;
+            let targetDist = step;
+
+            while (resampled.length < numPoints - 1 && currSegment < segments.length) {
+                const segLen = segments[currSegment];
+                if (accumDist + segLen >= targetDist) {
+                    const ratio = (targetDist - accumDist) / segLen;
+                    const p1 = points[currSegment];
+                    const p2 = points[currSegment + 1];
+                    resampled.push({
+                        x: p1.x + (p2.x - p1.x) * ratio,
+                        y: p1.y + (p2.y - p1.y) * ratio
+                    });
+                    targetDist += step;
+                } else {
+                    accumDist += segLen;
+                    currSegment++;
+                }
+            }
+
+            if (resampled.length < numPoints) {
+                resampled.push(points[points.length - 1]);
+            }
+            return resampled;
+        }
+
+        // --- MATH / GRAPHICS UTILITIES ---
+        function addJoint(x, y, isFixed = false) {
+            const id = Math.random().toString(36).substr(2, 9);
+            joints.push({
+                id: id,
+                x: x,
+                y: y,
+                initialX: x,
+                initialY: y,
+                isFixed: isFixed,
+                isCrank: false,
+                isSlider: false,
+                sliderY: y,
+                crankRadius: 50,
+                crankAngle: 0,
+                crankPivotId: null,
+                trace: []
+            });
+            updateDOF();
+            return id;
+        }
+
+        function addLink(jA, jB, length = null, color = '#38bdf8') {
+            const jointA = joints.find(j => j.id === jA);
+            const jointB = joints.find(j => j.id === jB);
+            if (!jointA || !jointB || jA === jB) return null;
+
+            const duplicate = links.find(l => (l.jointA === jA && l.jointB === jB) || (l.jointA === jB && l.jointB === jA));
+            if (duplicate) return duplicate.id;
+
+            if (length === null) {
+                length = Math.sqrt((jointB.x - jointA.x) ** 2 + (jointB.y - jointA.y) ** 2);
+            }
+
+            const id = Math.random().toString(36).substr(2, 9);
+            links.push({
+                id: id,
+                jointA: jA,
+                jointB: jB,
+                length: length,
+                color: color
+            });
+            updateDOF();
+            return id;
+        }
+
+        function deleteJoint(id) {
+            joints = joints.filter(j => j.id !== id);
+            links = links.filter(l => l.jointA !== id && l.jointB !== id);
+            if (selectedJoint && selectedJoint.id === id) selectedJoint = null;
+            if (selectedGraphNode === id) selectedGraphNode = null;
+            updateDOF();
+        }
+
+        function deleteLink(id) {
+            links = links.filter(l => l.id !== id);
+            if (selectedLink && selectedLink.id === id) selectedLink = null;
+            updateDOF();
+        }
+
+        function updateDOF() {
+            const n = joints.length;
+            const j1 = links.length + joints.filter(j => j.isCrank).length; 
+            const j2 = joints.filter(j => j.isSlider).length; 
+
+            const calculatedDOF = Math.max(0, 3 * (n - 1) - 2 * j1 - j2);
+            document.getElementById('dof-display').innerText = joints.length > 0 ? calculatedDOF : "0";
+        }
+
+        // --- PRESETS LOADING BLOCK ---
+        function loadPreset(name) {
+            clearCanvas();
+            const w = canvas.width;
+            const h = canvas.height;
+            const cx = w / 2 - 100;
+            const cy = h / 2 - 50;
+
+            if (name === 'fourbar') {
+                const g1 = addJoint(cx, cy + 100, true);
+                const g2 = addJoint(cx + 250, cy + 100, true);
+
+                const c = addJoint(cx, cy + 30, false);
+                const jC = joints.find(j => j.id === c);
+                jC.isCrank = true;
+                jC.crankPivotId = g1;
+                jC.crankRadius = 70;
+
+                const f = addJoint(cx + 250, cy - 20, false);
+                
+                addLink(c, f, 220, '#0ea5e9'); 
+                addLink(g2, f, 120, '#8b5cf6'); 
+
+                const t = addJoint(cx + 120, cy - 80, false);
+                addLink(c, t, 140, '#f43f5e');
+                addLink(f, t, 140, '#f43f5e');
+
+                selectedGraphNode = t;
+                document.getElementById('graph-node-name').innerText = "Tracer Pin";
+                showNotification("Four-Bar Loaded", "Standard Crank-Rocker mechanism layout.");
+            } else if (name === 'slider') {
+                const g1 = addJoint(cx, cy + 50, true);
+                const c = addJoint(cx + 60, cy + 50, false);
+                const jC = joints.find(j => j.id === c);
+                jC.isCrank = true;
+                jC.crankPivotId = g1;
+                jC.crankRadius = 60;
+
+                const s = addJoint(cx + 240, cy + 50, false);
+                const jS = joints.find(j => j.id === s);
+                jS.isSlider = true;
+                jS.sliderY = cy + 50;
+
+                addLink(c, s, 200, '#10b981');
+                selectedGraphNode = s;
+                document.getElementById('graph-node-name').innerText = "Linear Slider Node";
+                showNotification("Slider-Crank Loaded", "Converts rotation to linear translation.");
+            } else if (name === 'jansen') {
+                const scale = 3.5;
+                const ox = cx + 80;
+                const oy = cy + 50;
+
+                const g1 = addJoint(ox, oy, true); 
+                const g2 = addJoint(ox - 38 * scale, oy - 7.8 * scale, true); 
+
+                const crankId = addJoint(ox - 38 * scale, oy - 7.8 * scale + 15 * scale, false);
+                const jCr = joints.find(j => j.id === crankId);
+                jCr.isCrank = true;
+                jCr.crankPivotId = g2;
+                jCr.crankRadius = 15 * scale;
+
+                const b1 = addJoint(ox - 20 * scale, oy + 10 * scale, false);
+                const b2 = addJoint(ox - 10 * scale, oy - 20 * scale, false);
+                const b3 = addJoint(ox + 20 * scale, oy - 10 * scale, false);
+                const b4 = addJoint(ox + 30 * scale, oy + 10 * scale, false);
+                const foot = addJoint(ox + 40 * scale, oy - 120 * scale, false);
+
+                addLink(crankId, b1, 50 * scale, '#0ea5e9');
+                addLink(crankId, b2, 61.9 * scale, '#0ea5e9');
+                addLink(g1, b1, 41.5 * scale, '#8b5cf6');
+                addLink(g1, b3, 39.3 * scale, '#8b5cf6');
+                addLink(b1, b3, 55.8 * scale, '#10b981');
+                addLink(b2, b3, 39.4 * scale, '#10b981');
+                addLink(b2, foot, 65.7 * scale, '#f43f5e');
+                addLink(b3, b4, 36.7 * scale, '#f43f5e');
+                addLink(b4, foot, 49 * scale, '#ec4899');
+
+                selectedGraphNode = foot;
+                document.getElementById('graph-node-name').innerText = "Walking Foot Pin";
+                showNotification("Jansen Strandbeest Leg", "Complex 8-bar walking geometry layout.");
+            } else if (name === 'klann') {
+                const ox = cx + 50;
+                const oy = cy + 40;
+
+                const g1 = addJoint(ox, oy, true); 
+                const g2 = addJoint(ox + 100, oy + 25, true); 
+
+                const c = addJoint(ox + 25, oy + 15, false);
+                const jC = joints.find(j => j.id === c);
+                jC.isCrank = true;
+                jC.crankPivotId = g1;
+                jC.crankRadius = 30;
+
+                const j1 = addJoint(ox + 50, oy - 40, false);
+                const j2 = addJoint(ox + 120, oy - 20, false);
+                const foot = addJoint(ox + 140, oy - 130, false);
+
+                addLink(g1, c, 30, '#f59e0b');
+                addLink(c, j1, 50, '#0ea5e9');
+                addLink(g2, j2, 55, '#8b5cf6');
+                addLink(j1, j2, 72, '#10b981');
+                addLink(j1, foot, 130, '#ec4899');
+                addLink(j2, foot, 100, '#f43f5e');
+
+                selectedGraphNode = foot;
+                document.getElementById('graph-node-name').innerText = "Klann Foot Node";
+                showNotification("Klann Leg Linkage", "6-bar walking cycle featuring high clearance step-paths.");
+            } else if (name === 'peaucellier') {
+                const ox = cx - 50;
+                const oy = cy + 80;
+
+                const g1 = addJoint(ox, oy, true);
+                const g2 = addJoint(ox + 90, oy, true); 
+
+                const c = addJoint(ox + 90, oy - 90, false);
+                const jC = joints.find(j => j.id === c);
+                jC.isCrank = true;
+                jC.crankPivotId = g2;
+                jC.crankRadius = 90;
+
+                const d = addJoint(ox + 180, oy - 60, false);
+                const f = addJoint(ox + 260, oy, false); 
+                const e = addJoint(ox + 180, oy + 60, false);
+
+                addLink(c, d, 90, '#10b981');
+                addLink(d, f, 90, '#10b981');
+                addLink(f, e, 90, '#10b981');
+                addLink(e, c, 90, '#10b981');
+
+                addLink(g1, c, 220, '#8b5cf6');
+                addLink(g1, e, 220, '#8b5cf6');
+
+                selectedGraphNode = f;
+                document.getElementById('graph-node-name').innerText = "Linear Tracer Node";
+                showNotification("Peaucellier-Lipkin Cell", "Transforms rotational curves to exact straight lines.");
+            } else if (name === 'watt') {
+                const ox = cx;
+                const oy = cy + 40;
+
+                const g1 = addJoint(ox - 100, oy - 80, true);
+                const g2 = addJoint(ox - 100, oy + 80, true);
+
+                const r1 = addJoint(ox + 10, oy - 80, false);
+                const r2 = addJoint(ox + 10, oy + 80, false);
+                
+                const m = addJoint(ox + 15, oy, false);
+
+                const jR1 = joints.find(j => j.id === r1);
+                jR1.isCrank = true;
+                jR1.crankPivotId = g1;
+                jR1.crankRadius = 110;
+
+                addLink(g1, r1, 110, '#8b5cf6');
+                addLink(g2, r2, 110, '#8b5cf6');
+                addLink(r1, m, 80, '#10b981');
+                addLink(r2, m, 80, '#10b981');
+
+                selectedGraphNode = m;
+                document.getElementById('graph-node-name').innerText = "Watt Midpoint Pin";
+                showNotification("Watt's Straight-Line Linkage", "Classic approximate straight line mechanism.");
+            } else if (name === 'quickreturn') {
+                const ox = cx - 50;
+                const oy = cy + 40;
+
+                const g1 = addJoint(ox, oy, true); 
+                
+                const c = addJoint(ox + 45, oy, false);
+                const jC = joints.find(j => j.id === c);
+                jC.isCrank = true;
+                jC.crankPivotId = g1;
+                jC.crankRadius = 45;
+
+                const s = addJoint(ox + 200, oy + 60, false);
+                const jS = joints.find(j => j.id === s);
+                jS.isSlider = true;
+                jS.sliderY = oy + 60; 
+
+                addLink(c, s, 185, '#10b981');
+
+                selectedGraphNode = s;
+                document.getElementById('graph-node-name').innerText = "Reciprocating Head";
+                showNotification("Offset Slider Quick-Return", "Offset stroke creates fast return cycles.");
+            }
+
+            resetSim();
+            draw();
+        }
+
+        // --- INTERACTIVITY & USER EDITING ---
+        function setTool(toolName) {
+            activeTool = toolName;
+            document.querySelectorAll('.tool-btn').forEach(btn => {
+                btn.classList.remove('bg-indigo-600', 'text-white', 'border-indigo-500');
+                btn.classList.add('bg-slate-800', 'text-slate-300', 'border-slate-700');
+            });
+
+            const activeBtn = document.getElementById(`tool-${toolName}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('bg-slate-800', 'text-slate-300', 'border-slate-700');
+                activeBtn.classList.add('bg-indigo-600', 'text-white', 'border-indigo-500');
+            }
+
+            if (toolName === 'draw-path') {
+                isDrawingPath = true;
+                customPath = [];
+                isSimulating = false;
+                document.getElementById('play-icon').setAttribute('data-lucide', 'play');
+                lucide.createIcons();
+            } else {
+                isDrawingPath = false;
+            }
+        }
+
+        function setGraphMode(mode) {
+            graphMode = mode;
+            document.querySelectorAll('.graph-mode-btn').forEach(btn => {
+                btn.classList.remove('bg-indigo-600', 'text-white');
+                btn.classList.add('bg-slate-800', 'text-slate-400');
+            });
+            const activeBtn = document.getElementById(`btn-mode-${mode}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('bg-slate-800', 'text-slate-400');
+                activeBtn.classList.add('bg-indigo-600', 'text-white');
+            }
+            graphHistoryX = [];
+            graphHistoryY = [];
+            graphHistoryMag = [];
+        }
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left - panX) / zoom,
+                y: (e.clientY - rect.top - panY) / zoom
+            };
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            const pos = getMousePos(e);
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+
+            if (e.button === 1 || e.shiftKey) {
+                isPanning = true;
+                return;
+            }
+
+            if (activeTool === 'draw-path') {
+                customPath = [pos];
+                return;
+            }
+
+            const hitJoint = findJointAt(pos.x, pos.y);
+            const hitLink = findLinkAt(pos.x, pos.y);
+
+            if (activeTool === 'select') {
+                if (hitJoint) {
+                    dragTarget = hitJoint;
+                    selectedJoint = hitJoint;
+                    selectedLink = null;
+                    showInspector('joint', hitJoint);
+                } else if (hitLink) {
+                    selectedLink = hitLink;
+                    selectedJoint = null;
+                    showInspector('link', hitLink);
+                } else {
+                    deselectElement();
+                }
+            } else if (activeTool === 'joint') {
+                addJoint(pos.x, pos.y);
+            } else if (activeTool === 'link') {
+                if (hitJoint) {
+                    if (!activeLinkOrigin) {
+                        activeLinkOrigin = hitJoint.id;
+                    } else {
+                        addLink(activeLinkOrigin, hitJoint.id);
+                        activeLinkOrigin = null;
+                    }
+                } else {
+                    activeLinkOrigin = null;
+                }
+            } else if (activeTool === 'eraser') {
+                if (hitJoint) deleteJoint(hitJoint.id);
+                else if (hitLink) deleteLink(hitLink.id);
+            } else if (activeTool === 'toggle-fixed' && hitJoint) {
+                hitJoint.isFixed = !hitJoint.isFixed;
+                hitJoint.initialX = hitJoint.x;
+                hitJoint.initialY = hitJoint.y;
+                updateDOF();
+            } else if (activeTool === 'toggle-crank' && hitJoint) {
+                if (!hitJoint.isCrank) {
+                    const nearestFixed = joints.find(j => j.isFixed && j.id !== hitJoint.id);
+                    hitJoint.isCrank = true;
+                    hitJoint.crankPivotId = nearestFixed ? nearestFixed.id : null;
+                    hitJoint.crankRadius = nearestFixed ? Math.sqrt((hitJoint.x - nearestFixed.x)**2 + (hitJoint.y - nearestFixed.y)**2) : 50;
+                    hitJoint.crankAngle = Math.atan2(hitJoint.y - (nearestFixed ? nearestFixed.y : 0), hitJoint.x - (nearestFixed ? nearestFixed.x : 0));
+                } else {
+                    hitJoint.isCrank = false;
+                }
+                updateDOF();
+            } else if (activeTool === 'toggle-slider' && hitJoint) {
+                hitJoint.isSlider = !hitJoint.isSlider;
+                hitJoint.sliderY = hitJoint.y;
+                updateDOF();
+            }
+
+            draw();
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const pos = getMousePos(e);
+
+            if (isPanning) {
+                panX += e.clientX - lastMouseX;
+                panY += e.clientY - lastMouseY;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+                draw();
+                return;
+            }
+
+            if (activeTool === 'draw-path' && e.buttons === 1) {
+                customPath.push(pos);
+                draw();
+                return;
+            }
+
+            if (activeTool === 'select' && dragTarget) {
+                dragTarget.x = pos.x;
+                dragTarget.y = pos.y;
+                if (dragTarget.isFixed) {
+                    dragTarget.initialX = pos.x;
+                    dragTarget.initialY = pos.y;
+                }
+                if (dragTarget.isSlider) {
+                    dragTarget.sliderY = pos.y;
+                }
+                draw();
+                return;
+            }
+
+            if (activeTool === 'link' && activeLinkOrigin) {
+                draw();
+                const orig = joints.find(j => j.id === activeLinkOrigin);
+                if (orig) {
+                    ctx.save();
+                    ctx.translate(panX, panY);
+                    ctx.scale(zoom, zoom);
+                    ctx.beginPath();
+                    ctx.moveTo(orig.x, orig.y);
+                    ctx.lineTo(pos.x, pos.y);
+                    ctx.strokeStyle = '#64748b';
+                    ctx.setLineDash([5, 5]);
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            if (isPanning) {
+                isPanning = false;
+                return;
+            }
+
+            if (activeTool === 'draw-path' && customPath.length > 5) {
+                setupSynthesis();
+            }
+
+            dragTarget = null;
+        });
+
+        // Touch event mappings for mobile devices
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                const mouseEv = new MouseEvent('mousedown', {
+                    clientX: e.touches[0].clientX,
+                    clientY: e.touches[0].clientY,
+                    button: 0
+                });
+                canvas.dispatchEvent(mouseEv);
+            }
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 1) {
+                const mouseEv = new MouseEvent('mousemove', {
+                    clientX: e.touches[0].clientX,
+                    clientY: e.touches[0].clientY,
+                    buttons: 1
+                });
+                canvas.dispatchEvent(mouseEv);
+            }
+        });
+
+        canvas.addEventListener('touchend', () => {
+            const mouseEv = new MouseEvent('mouseup', {});
+            canvas.dispatchEvent(mouseEv);
+        });
+
+        function findJointAt(x, y) {
+            return joints.find(j => {
+                const dist = Math.sqrt((j.x - x) ** 2 + (j.y - y) ** 2);
+                return dist < 12;
+            });
+        }
+
+        function findLinkAt(x, y) {
+            return links.find(l => {
+                const jA = joints.find(j => j.id === l.jointA);
+                const jB = joints.find(j => j.id === l.jointB);
+                if (!jA || !jB) return false;
+
+                const A = x - jA.x;
+                const B = y - jA.y;
+                const C = jB.x - jA.x;
+                const D = jB.y - jA.y;
+
+                const dot = A * C + B * D;
+                const lenSq = C * C + D * D;
+                let param = -1;
+                if (lenSq !== 0) param = dot / lenSq;
+
+                let xx, yy;
+                if (param < 0) {
+                    xx = jA.x;
+                    yy = jA.y;
+                } else if (param > 1) {
+                    xx = jB.x;
+                    yy = jB.y;
+                } else {
+                    xx = jA.x + param * C;
+                    yy = jA.y + param * D;
+                }
+
+                const dist = Math.sqrt((x - xx) ** 2 + (y - yy) ** 2);
+                return dist < 8;
+            });
+        }
+
+        function showInspector(type, elem) {
+            const panel = document.getElementById('inspector-panel');
+            const content = document.getElementById('inspector-content');
+            panel.classList.remove('hidden');
+
+            if (type === 'joint') {
+                content.innerHTML = `
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Fixed Anchor:</span>
+                            <span class="font-bold text-slate-200">${elem.isFixed ? 'Yes' : 'No'}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Position X:</span>
+                            <input type="number" step="1" value="${Math.round(elem.x)}" onchange="updateSelectedJointProp('x', this.value)" class="bg-slate-950 border border-slate-800 rounded px-1 w-16 text-right text-indigo-400">
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Position Y:</span>
+                            <input type="number" step="1" value="${Math.round(elem.y)}" onchange="updateSelectedJointProp('y', this.value)" class="bg-slate-950 border border-slate-800 rounded px-1 w-16 text-right text-indigo-400">
+                        </div>
+                        <div class="pt-2 border-t border-slate-800/60">
+                            <button onclick="setGraphTarget('${elem.id}')" class="w-full bg-indigo-950 hover:bg-indigo-900 border border-indigo-500/30 text-indigo-300 py-1.5 rounded transition">
+                                Graph Oscilloscope Track
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else if (type === 'link') {
+                content.innerHTML = `
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Total Length:</span>
+                            <input type="number" step="0.5" value="${elem.length.toFixed(1)}" onchange="updateSelectedLinkProp('length', this.value)" class="bg-slate-950 border border-slate-800 rounded px-1 w-20 text-right text-indigo-400">
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Joint A ID:</span>
+                            <span class="mono text-slate-400">${elem.jointA.substr(0, 5)}...</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-slate-400">Joint B ID:</span>
+                            <span class="mono text-slate-400">${elem.jointB.substr(0, 5)}...</span>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function deselectElement() {
+            selectedJoint = null;
+            selectedLink = null;
+            document.getElementById('inspector-panel').classList.add('hidden');
+            draw();
+        }
+
+        function updateSelectedJointProp(prop, val) {
+            if (!selectedJoint) return;
+            const parsed = parseFloat(val);
+            if (isNaN(parsed)) return;
+
+            if (prop === 'x') {
+                selectedJoint.x = parsed;
+                if (selectedJoint.isFixed) selectedJoint.initialX = parsed;
+            } else if (prop === 'y') {
+                selectedJoint.y = parsed;
+                if (selectedJoint.isFixed) selectedJoint.initialY = parsed;
+            }
+            draw();
+        }
+
+        function updateSelectedLinkProp(prop, val) {
+            if (!selectedLink) return;
+            const parsed = parseFloat(val);
+            if (isNaN(parsed) || parsed <= 0) return;
+
+            if (prop === 'length') {
+                selectedLink.length = parsed;
+            }
+            draw();
+        }
+
+        function setGraphTarget(id) {
+            selectedGraphNode = id;
+            const node = joints.find(j => j.id === id);
+            document.getElementById('graph-node-name').innerText = node ? `Joint ${node.id.substr(0, 5)}` : "None";
+            graphHistoryX = [];
+            graphHistoryY = [];
+            graphHistoryMag = [];
+        }
+
+        // --- RENDER ENGINE PIPELINE ---
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawGrid();
+
+            ctx.save();
+            ctx.translate(panX, panY);
+            ctx.scale(zoom, zoom);
+
+            // 1. Draw target drawing path loop
+            if (customPath.length > 0) {
+                ctx.beginPath();
+                ctx.moveTo(customPath[0].x, customPath[0].y);
+                customPath.forEach(p => ctx.lineTo(p.x, p.y));
+                ctx.strokeStyle = '#4f46e5';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            // Draw genetic best candidate projection curve during synthesis
+            if (isSynthesizing && gaBestChromosome) {
+                const topology = document.getElementById('synthesis-topology').value;
+                drawCandidatePath(gaBestChromosome, topology);
+            }
+
+            // 2. Draw Movement Traces (Coupler paths)
+            if (showTraces) {
+                joints.forEach(j => {
+                    if (j.trace && j.trace.length > 1) {
+                        ctx.beginPath();
+                        ctx.moveTo(j.trace[0].x, j.trace[0].y);
+                        for (let i = 1; i < j.trace.length; i++) {
+                            ctx.lineTo(j.trace[i].x, j.trace[i].y);
+                        }
+                        ctx.strokeStyle = j.id === selectedGraphNode ? 'rgba(236, 72, 153, 0.7)' : 'rgba(139, 92, 246, 0.4)';
+                        ctx.lineWidth = j.id === selectedGraphNode ? 2.5 : 1.5;
+                        ctx.stroke();
+                    }
+                });
+            }
+
+            // 3. Draw structural Links
+            links.forEach(l => {
+                const jA = joints.find(j => j.id === l.jointA);
+                const jB = joints.find(j => j.id === l.jointB);
+                if (!jA || !jB) return;
+
+                ctx.beginPath();
+                ctx.moveTo(jA.x, jA.y);
+                ctx.lineTo(jB.x, jB.y);
+
+                if (showStress && isSimulating) {
+                    const dx = jB.x - jA.x;
+                    const dy = jB.y - jA.y;
+                    const currentDist = Math.sqrt(dx*dx + dy*dy);
+                    const stretch = Math.abs(currentDist - l.length) / l.length;
+                    
+                    const red = Math.min(255, Math.round(stretch * 3200));
+                    ctx.strokeStyle = `rgb(${red}, 140, ${255 - red})`;
+                } else {
+                    ctx.strokeStyle = (selectedLink && selectedLink.id === l.id) ? '#38bdf8' : l.color;
+                }
+
+                ctx.lineWidth = (selectedLink && selectedLink.id === l.id) ? 6 : 4;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+            });
+
+            // 4. Draw Joint nodes
+            joints.forEach(j => {
+                if (j.isFixed) {
+                    ctx.beginPath();
+                    ctx.moveTo(j.x - 14, j.y + 14);
+                    ctx.lineTo(j.x + 14, j.y + 14);
+                    ctx.strokeStyle = '#334155';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    for (let xOffset = -12; xOffset <= 12; xOffset += 6) {
+                        ctx.moveTo(j.x + xOffset, j.y + 14);
+                        ctx.lineTo(j.x + xOffset - 4, j.y + 19);
+                    }
+                    ctx.strokeStyle = '#334155';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
+
+                if (j.isCrank && j.crankPivotId) {
+                    const pivot = joints.find(p => p.id === j.crankPivotId);
+                    if (pivot) {
+                        ctx.beginPath();
+                        ctx.arc(pivot.x, pivot.y, j.crankRadius, 0, 2 * Math.PI);
+                        ctx.strokeStyle = 'rgba(245, 158, 11, 0.25)';
+                        ctx.setLineDash([4, 4]);
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
+
+                if (j.isSlider) {
+                    ctx.beginPath();
+                    ctx.moveTo(j.x - 100, j.y);
+                    ctx.lineTo(j.x + 100, j.y);
+                    ctx.strokeStyle = 'rgba(56, 189, 248, 0.15)';
+                    ctx.lineWidth = 6;
+                    ctx.stroke();
+                }
+
+                ctx.beginPath();
+                ctx.arc(j.x, j.y, 7, 0, 2 * Math.PI);
+                
+                if (selectedJoint && selectedJoint.id === j.id) {
+                    ctx.fillStyle = '#f43f5e'; 
+                } else if (j.isFixed) {
+                    ctx.fillStyle = '#10b981'; 
+                } else if (j.isCrank) {
+                    ctx.fillStyle = '#f59e0b'; 
+                } else if (j.isSlider) {
+                    ctx.fillStyle = '#0ea5e9'; 
+                } else {
+                    ctx.fillStyle = '#cbd5e1'; 
+                }
+                ctx.fill();
+
+                ctx.strokeStyle = '#0f172a';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+
+            ctx.restore();
+
+            drawLiveGraph();
+            drawEfficiencyGraph();
+        }
+
+        // Project the optimized linkage curve back into user viewport
+        function drawCandidatePath(chrom, topology) {
+            let pathPoints = [];
+            const steps = 36;
+
+            if (topology === 'fourbar') {
+                const [r, l2, l3, u, v] = chrom;
+                const g2x = 1.0, g2y = 0.0;
+
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * 2 * Math.PI;
+                    const cx = r * Math.cos(angle);
+                    const cy = r * Math.sin(angle);
+                    const d = Math.sqrt((g2x - cx) ** 2 + (g2y - cy) ** 2);
+                    if (d > l2 + l3 || d < Math.abs(l2 - l3)) continue;
+
+                    const a = (l2 ** 2 - l3 ** 2 + d ** 2) / (2 * d);
+                    const h = Math.sqrt(Math.max(0, l2 ** 2 - a ** 2));
+                    const ux = (g2x - cx) / d;
+                    const uy = (g2y - cy) / d;
+                    const fx = cx + a * ux - h * uy;
+                    const fy = cy + a * uy + h * ux;
+
+                    const cfx = (fx - cx) / l2;
+                    const cfy = (fy - cy) / l2;
+                    const px = cx + u * cfx - v * cfy;
+                    const py = cy + u * cfy + v * cfx;
+
+                    pathPoints.push({ x: px, y: py });
+                }
+            } else {
+                const [r, l2, h, u, v] = chrom;
+                for (let i = 0; i < steps; i++) {
+                    const angle = (i / steps) * 2 * Math.PI;
+                    const cx = r * Math.cos(angle);
+                    const cy = r * Math.sin(angle);
+                    const dy = h - cy;
+                    if (Math.abs(dy) > l2) continue;
+                    const sx = cx + Math.sqrt(l2 ** 2 - dy ** 2);
+                    const sy = h;
+                    const cfx = (sx - cx) / l2;
+                    const cfy = (sy - cy) / l2;
+                    const px = cx + u * cfx - v * cfy;
+                    const py = cy + u * cfy + v * cfx;
+                    pathPoints.push({ x: px, y: py });
+                }
+            }
+
+            if (pathPoints.length < 3) return;
+
+            // Fit using calculated conformal alignment matrices
+            let tCentroidX = 0, tCentroidY = 0;
+            resampledPath.forEach(p => { tCentroidX += p.x; tCentroidY += p.y; });
+            tCentroidX /= resampledPath.length;
+            tCentroidY /= resampledPath.length;
+
+            let tVariance = 0;
+            resampledPath.forEach(p => { tVariance += (p.x - tCentroidX)**2 + (p.y - tCentroidY)**2; });
+            const tScale = Math.sqrt(tVariance / resampledPath.length);
+
+            let cCentroidX = 0, cCentroidY = 0;
+            pathPoints.forEach(p => { cCentroidX += p.x; cCentroidY += p.y; });
+            cCentroidX /= steps;
+            cCentroidY /= steps;
+
+            let cVariance = 0;
+            pathPoints.forEach(p => { cVariance += (p.x - cCentroidX)**2 + (p.y - cCentroidY)**2; });
+            const cScale = Math.sqrt(cVariance / steps);
+
+            const K = tScale / cScale;
+            const phi = currentSynthesisRotation;
+            const cosP = Math.cos(phi);
+            const sinP = Math.sin(phi);
+
+            ctx.beginPath();
+            for (let i = 0; i < steps; i++) {
+                const pt = pathPoints[i];
+                const dx = (pt.x - cCentroidX) * K;
+                const dy = (pt.y - cCentroidY) * K;
+                const wx = tCentroidX + (dx * cosP - dy * sinP);
+                const wy = tCentroidY + (dx * sinP + dy * cosP);
+
+                if (i === 0) ctx.moveTo(wx, wy);
+                else ctx.lineTo(wx, wy);
+            }
+            ctx.closePath();
+            ctx.strokeStyle = '#10b981';
+            ctx.lineWidth = 2.5;
+            ctx.setLineDash([4, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function drawGrid() {
+            const spacing = 40;
+            const width = canvas.width;
+            const height = canvas.height;
+
+            ctx.save();
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 0.5;
+
+            const startX = panX % (spacing * zoom);
+            const startY = panY % (spacing * zoom);
+
+            ctx.beginPath();
+            for (let x = startX; x < width; x += spacing * zoom) {
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+            }
+            for (let y = startY; y < height; y += spacing * zoom) {
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+            }
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // Multi-Channel real-time plotting loop inside bottom panel
+        function drawLiveGraph() {
+            graphCtx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
+            
+            const w = graphCanvas.width;
+            const h = graphCanvas.height;
+
+            // Zero line guide
+            graphCtx.strokeStyle = '#1e293b';
+            graphCtx.lineWidth = 1;
+            graphCtx.beginPath();
+            graphCtx.moveTo(0, h / 2);
+            graphCtx.lineTo(w, h / 2);
+            graphCtx.stroke();
+
+            if (graphHistoryX.length < 2) {
+                // Render flat lines if no active selection
+                graphCtx.fillStyle = '#475569';
+                graphCtx.font = '10px sans-serif';
+                graphCtx.fillText("Select a joint pin and click 'Graph Oscilloscope' to monitor tracks.", w / 2 - 170, h / 2 + 4);
+                return;
+            }
+
+            // Detect bounds to implement dynamic scaling matching the plot limits
+            let maxVal = -Infinity;
+            let minVal = Infinity;
+            for (let i = 0; i < graphHistoryX.length; i++) {
+                maxVal = Math.max(maxVal, graphHistoryX[i], graphHistoryY[i], graphHistoryMag[i]);
+                minVal = Math.min(minVal, graphHistoryX[i], graphHistoryY[i], graphHistoryMag[i]);
+            }
+
+            const valRange = Math.max(Math.abs(maxVal), Math.abs(minVal), 0.1) * 1.15;
+            const scaleY = (h / 2 - 10) / valRange;
+            const step = w / 200;
+
+            const drawChannel = (history, color) => {
+                graphCtx.beginPath();
+                for (let i = 0; i < history.length; i++) {
+                    const x = i * step;
+                    const y = h / 2 - history[i] * scaleY;
+                    if (i === 0) graphCtx.moveTo(x, y);
+                    else graphCtx.lineTo(x, y);
+                }
+                graphCtx.strokeStyle = color;
+                graphCtx.lineWidth = 1.8;
+                graphCtx.stroke();
+            };
+
+            // Renders X coordinate offset lines, Y coordinates, and absolute vector magnitude profiles
+            drawChannel(graphHistoryX, '#22d3ee');   // X channel: Cyan
+            drawChannel(graphHistoryY, '#c084fc');   // Y channel: Purple
+            drawChannel(graphHistoryMag, '#f43f5e'); // Mag channel: Pink
+            
+            // Scaler indicators
+            graphCtx.fillStyle = '#64748b';
+            graphCtx.font = '9px monospace';
+            graphCtx.fillText(`+${valRange.toFixed(1)}`, 5, 12);
+            graphCtx.fillText(`-${valRange.toFixed(1)}`, 5, h - 5);
+        }
+
+        // Dedicated real-time plotting of Energy (KE, SE) & Transmission Efficiency
+        function drawEfficiencyGraph() {
+            efficiencyCtx.clearRect(0, 0, efficiencyCanvas.width, efficiencyCanvas.height);
+
+            const w = efficiencyCanvas.width;
+            const h = efficiencyCanvas.height;
+
+            if (graphHistoryEff.length < 2) return;
+
+            // Compute scaling values for dynamic energy plotting (0 to 100% on efficiency axis)
+            const step = w / 200;
+
+            // 1. Draw Efficiency curve (Emerald)
+            efficiencyCtx.beginPath();
+            for (let i = 0; i < graphHistoryEff.length; i++) {
+                const x = i * step;
+                const y = h - (graphHistoryEff[i] / 100) * (h * 0.8) - 10;
+                if (i === 0) efficiencyCtx.moveTo(x, y);
+                else efficiencyCtx.lineTo(x, y);
+            }
+            efficiencyCtx.strokeStyle = '#10b981';
+            efficiencyCtx.lineWidth = 2;
+            efficiencyCtx.stroke();
+
+            // 2. Draw Kinetic Energy curve (Amber, scaled to visual height)
+            let maxKE = Math.max(...graphHistoryKE, 100);
+            efficiencyCtx.beginPath();
+            for (let i = 0; i < graphHistoryKE.length; i++) {
+                const x = i * step;
+                const y = h - (graphHistoryKE[i] / maxKE) * (h * 0.85) - 5;
+                if (i === 0) efficiencyCtx.moveTo(x, y);
+                else efficiencyCtx.lineTo(x, y);
+            }
+            efficiencyCtx.strokeStyle = '#f59e0b';
+            efficiencyCtx.lineWidth = 1.2;
+            efficiencyCtx.setLineDash([2, 2]);
+            efficiencyCtx.stroke();
+            efficiencyCtx.setLineDash([]);
+
+            // 3. Draw Strain Energy losses curve (Rose, scaled to same height as KE for direct ratio visual comparison)
+            efficiencyCtx.beginPath();
+            for (let i = 0; i < graphHistorySE.length; i++) {
+                const x = i * step;
+                const y = h - (graphHistorySE[i] / maxKE) * (h * 0.85) - 5;
+                if (i === 0) efficiencyCtx.moveTo(x, y);
+                else efficiencyCtx.lineTo(x, y);
+            }
+            efficiencyCtx.strokeStyle = '#f43f5e';
+            efficiencyCtx.lineWidth = 1.2;
+            efficiencyCtx.stroke();
+
+            // Legend indicators
+            efficiencyCtx.fillStyle = '#64748b';
+            efficiencyCtx.font = '9px monospace';
+            efficiencyCtx.fillText("100%", 5, 12);
+            efficiencyCtx.fillText("0%", 5, h - 5);
+
+            // Channel legend labels at bottom right
+            efficiencyCtx.fillStyle = 'rgba(16, 185, 129, 0.9)';
+            efficiencyCtx.fillText("● Efficiency (%)", w - 190, h - 10);
+            efficiencyCtx.fillStyle = 'rgba(245, 158, 11, 0.9)';
+            efficiencyCtx.fillText("● Kinetic Energy", w - 105, h - 10);
+            efficiencyCtx.fillStyle = 'rgba(244, 63, 94, 0.9)';
+            efficiencyCtx.fillText("● Strain Loss", w - 105, h - 22);
+        }
+
+        // --- SIMULATOR SETTINGS & CONTROLS ---
+        function playPauseSim() {
+            isSimulating = !isSimulating;
+            const btn = document.getElementById('play-btn');
+            const icon = document.getElementById('play-icon');
+
+            if (isSimulating) {
+                icon.setAttribute('data-lucide', 'pause');
+                btn.classList.remove('text-indigo-400');
+                btn.classList.add('text-amber-400');
+            } else {
+                icon.setAttribute('data-lucide', 'play');
+                btn.classList.remove('text-amber-400');
+                btn.classList.add('text-indigo-400');
+            }
+            lucide.createIcons();
+        }
+
+        function resetSim() {
+            joints.forEach(j => {
+                j.trace = [];
+            });
+            graphHistoryX = [];
+            graphHistoryY = [];
+            graphHistoryMag = [];
+            graphHistoryEff = [];
+            graphHistoryKE = [];
+            graphHistorySE = [];
+            draw();
+        }
+
+        function clearCanvas() {
+            joints = [];
+            links = [];
+            selectedJoint = null;
+            selectedLink = null;
+            selectedGraphNode = null;
+            customPath = [];
+            resampledPath = [];
+            isSynthesizing = false;
+            document.getElementById('inspector-panel').classList.add('hidden');
+            document.getElementById('graph-node-name').innerText = "None";
+            updateDOF();
+            resetSim();
+        }
+
+        function zoomCanvas(factor) {
+            zoom = Math.max(0.2, Math.min(5.0, zoom * factor));
+            draw();
+        }
+
+        function resetZoom() {
+            zoom = 1.0;
+            panX = 0;
+            panY = 0;
+            draw();
+        }
+
+        function updateSimSpeed(rpm) {
+            simSpeedRPM = parseInt(rpm);
+            document.getElementById('speed-val').innerText = `${rpm} RPM`;
+        }
+
+        function toggleStress(show) {
+            showStress = show;
+            draw();
+        }
+
+        function toggleTraces(show) {
+            showTraces = show;
+            if (!show) {
+                joints.forEach(j => j.trace = []);
+            }
+            draw();
+        }
+
+        function tournamentSelect() {
+            let best = null;
+            for (let i = 0; i < 3; i++) {
+                let ind = gaPopulation[Math.floor(Math.random() * gaPopulation.length)];
+                if (!best || ind.fitness < best.fitness) {
+                    best = ind;
+                }
+            }
+            return best;
+        }
+
+        function crossover(c1, c2) {
+            return c1.map((g, i) => {
+                if (Math.random() < 0.5) return g;
+                return c2[i];
+            });
+        }
+
+        function mutate(chrom, bounds) {
+            return chrom.map((g, i) => {
+                if (Math.random() > 0.15) return g;
+                const b = bounds[i];
+                const delta = (b[1] - b[0]) * 0.08 * (Math.random() - 0.5);
+                return Math.max(b[0], Math.min(b[1], g + delta));
+            });
+        }
+
+        function showNotification(title, message, iconName = 'info') {
+            document.getElementById('notif-title').innerText = title;
+            document.getElementById('notif-message').innerText = message;
+            
+            const container = document.getElementById('notif-icon-container');
+            container.innerHTML = `<i data-lucide="${iconName}" class="w-6 h-6"></i>`;
+            lucide.createIcons();
+
+            document.getElementById('notification-modal').classList.remove('hidden');
+        }
+
+        function closeNotification() {
+            document.getElementById('notification-modal').classList.add('hidden');
+        }
+
+        // --- LIFECYCLE EVENT LOOP ---
+        let lastTime = performance.now();
+        let fpsTimer = 0;
+        let fpsCounter = 0;
+
+        function loop(timestamp) {
+            const frameTime = (timestamp - lastTime) / 1000;
+            lastTime = timestamp;
+
+            fpsCounter++;
+            fpsTimer += frameTime;
+            if (fpsTimer >= 1.0) {
+                document.getElementById('solver-fps').innerText = `${fpsCounter} FPS`;
+                fpsCounter = 0;
+                fpsTimer = 0;
+            }
+
+            stepKinematics();
+            draw();
+
+            requestAnimationFrame(loop);
+        }
+
+        window.onload = function() {
+            resizeCanvases();
+            lucide.createIcons();
+            setTool('select');
+            loadPreset('fourbar');
+            setGraphMode('position');
+            
+            requestAnimationFrame(loop);
+        }
+    </script>
+</body>
+</html>
